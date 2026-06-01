@@ -62,6 +62,22 @@
       "id": "e7f32095",
       "name": "ррр",
       "parent_id": "c9b5bb80"
+    },
+    {
+      "color": "rgb(2, 62, 138)",
+      "created": "2026-06-01T09:36:00.026725",
+      "icon": "📚",
+      "id": "d6593ce4",
+      "name": "Операции с иерархиями",
+      "parent_id": "c9b5bb80"
+    },
+    {
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T09:44:35.880069",
+      "icon": "🧪",
+      "id": "aa6eb637",
+      "name": "Эксперименальные",
+      "parent_id": "c9b5bb80"
     }
   ],
   "scripts": [
@@ -154,7 +170,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Общее"
+        "XPresso"
       ]
     },
     {
@@ -170,7 +186,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Общее"
+        "XPresso"
       ]
     },
     {
@@ -186,7 +202,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Логика"
+        "XPresso"
       ]
     },
     {
@@ -202,7 +218,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Логика"
+        "XPresso"
       ]
     },
     {
@@ -218,7 +234,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Логика"
+        "XPresso"
       ]
     },
     {
@@ -234,7 +250,7 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": [
-        "XPresso - Логика"
+        "XPresso"
       ]
     },
     {
@@ -251,6 +267,118 @@
       "run_dir": "C:\\Users\\user\\Desktop\\Новая папка (2)",
       "tags": [
         "Утилита"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Merge & Pick (Include/Exclude)\n\nНазначение:\n1) Формирует единый список Include/Exclude из входных данных:\n   Link1 → InclExcl1 → Link2 → InclExcl2 (очередность сохраняется).\n2) Выдаёт объект из сформированного списка по индексу ID.\n3) При выключенном Duplicates исключает повторяющиеся объекты\n   (сравнение по ссылке на объект).\n\nПоведение:\n— ID — целое число (нумерация с 1).\n— Если индекс вне диапазона — Object = None.\n\nТребуемые порты:\n\nВход:\n    ID — Real\n    Duplicates — Bool\n    Link1 — Link\n    InclExcl1 — Include/Exclude\n    Link2 — Link\n    InclExcl2 — Include/Exclude\n\n\nВыход:\n    InclExcl — Include/Exclude\n    Object — Link\n\"\"\"\n\nimport c4d\n\ndef _add_object(dst, obj, allow_duplicates, seen):\n    if obj is None:\n        return\n\n    if not allow_duplicates:\n        gid = obj.GetGUID()\n        if gid in seen:\n            return\n        seen.add(gid)\n\n    dst.InsertObject(obj, 1)\n\ndef _append_link(dst, link, allow_duplicates, seen):\n    _add_object(dst, link, allow_duplicates, seen)\n\ndef _append_incexcl(dst, src, allow_duplicates, seen):\n    if src is None:\n        return\n    cnt = src.GetObjectCount()\n    for i in range(cnt):\n        obj = src.ObjectFromIndex(doc, i)\n        _add_object(dst, obj, allow_duplicates, seen)\n\ndef main():\n    global InclExcl, Object\n\n    allow_duplicates = bool(Duplicates)\n    seen = set()\n\n    result = c4d.InExcludeData()\n\n    _append_link(result, Link1, allow_duplicates, seen)\n    _append_incexcl(result, InclExcl1, allow_duplicates, seen)\n    _append_link(result, Link2, allow_duplicates, seen)\n    _append_incexcl(result, InclExcl2, allow_duplicates, seen)\n\n    InclExcl = result\n\n    try:\n        idx = int(round(ID)) - 1\n    except:\n        Object = None\n        return\n\n    if idx < 0 or idx >= result.GetObjectCount():\n        Object = None\n        return\n\n    Object = result.ObjectFromIndex(doc, idx)",
+      "color": "rgb(2, 62, 138)",
+      "created": "2026-06-01T09:39:56.921722",
+      "description": "Формирует единый список Include/Exclude из входных данных",
+      "folder_id": "d6593ce4",
+      "icon": "⚙",
+      "id": "261d4d2d",
+      "modified": "2026-06-01T09:39:56.921729",
+      "name": "Слияние уч./искл.",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — String Lists → Text (без пустых строк)\n\nНазначение:\nОбъединяет строки или списки строк из String1, String2, String3\nв единый список, формируя три текстовых выхода с префиксом, постфиксом\nи нумерацией.\n\nЛогика:\n— Каждый вход может быть одиночной строкой или списком (разделённым переносами).\n— Пустые строки игнорируются.\n— Формируются все элементы последовательно.\n— Text: Prefix + элемент + Postfix\n— IDText: номер строки;Text\n— IDTextIco: номер строки;Text;IcoID\n\nВходы:\n    String1 — String (одна строка или список)\n    String2 — String\n    String3 — String\n    Prefix — String\n    Postfix — String\n    InitialID — Real\n    IcoID — String\n\nВыходы:\n    Text — String\n    IDText — String\n    IDTextIco — String\n\"\"\"\n\ndef _to_list(s):\n    if not s:\n        return []\n    # Убираем пустые строки\n    return [x for x in str(s).splitlines() if x.strip()]\n\ndef main():\n    global Text, IDText, IDTextIco\n\n    try:\n        idx_counter = int(round(InitialID))\n    except:\n        idx_counter = 1\n\n    text_lines = []\n    id_lines = []\n    ico_lines = []\n\n    for lst in (_to_list(String1), _to_list(String2), _to_list(String3)):\n        for item in lst:\n            full_text = f\"{Prefix}{item}{Postfix}\"\n            text_lines.append(full_text)\n            id_lines.append(f\"{idx_counter};{full_text}\")\n            ico_lines.append(f\"{idx_counter};{full_text};{IcoID}\")\n            idx_counter += 1\n\n    Text = \"\\n\".join(text_lines)\n    IDText = \"\\n\".join(id_lines)\n    IDTextIco = \"\\n\".join(ico_lines)",
+      "color": "rgb(2, 62, 138)",
+      "created": "2026-06-01T09:42:46.733739",
+      "description": "Объединяет строки или списки строк из String1, String2, String3 в единый список, формируя три текстовых выхода с префиксом, постфиксом и нумерацией.",
+      "folder_id": "d6593ce4",
+      "icon": "⚙",
+      "id": "3659f84c",
+      "modified": "2026-06-01T09:42:46.733744",
+      "name": "Слияние списков строк",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Objects → Text Lists\n\nНазначение:\nПреобразует список Include/Exclude объектов в текстовые списки.\n\nФормирование:\n\nText:\n— Имя объекта.\n— Если задан Prefix → добавляется перед именем.\n— Если задан Postfix → добавляется после имени.\n\nIDText:\n— Формат: ID;Text\n— Нумерация начинается с InitialID.\n\nIDTextIco:\n— Формат: ID;Text;Ico\n— По умолчанию берётся ID иконки объекта.\n— Если в IcoID передано значение — оно заменяет все иконки.\n\nТребуемые порты:\n\nВход:\n    Objects — Include/Exclude\n    Prefix — String\n    Postfix — String\n    InitialID — Real\n    IcoID — String\n\nВыход:\n    Text — String\n    IDText — String\n    IDTextIco — String\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Text, IDText, IDTextIco\n\n    if Objects is None:\n        Text = \"\"\n        IDText = \"\"\n        IDTextIco = \"\"\n        return\n\n    try:\n        start_id = int(round(InitialID))\n    except:\n        start_id = 1\n\n    use_custom_ico = bool(IcoID)\n\n    text_lines = []\n    id_lines = []\n    ico_lines = []\n\n    count = Objects.GetObjectCount()\n\n    for i in range(count):\n        obj = Objects.ObjectFromIndex(doc, i)\n        if obj is None:\n            continue\n\n        name = obj.GetName()\n\n        full_text = f\"{Prefix}{name}{Postfix}\"\n\n        idx = start_id + i\n\n        text_lines.append(full_text)\n        id_lines.append(f\"{idx};{full_text}\")\n\n        if use_custom_ico:\n            ico_id = IcoID\n        else:\n            try:\n                ico_id = str(obj.GetType())\n            except:\n                ico_id = \"0\"\n\n        ico_lines.append(f\"{idx};{full_text};{ico_id}\")\n\n    Text = \"\\n\".join(text_lines)\n    IDText = \"\\n\".join(id_lines)\n    IDTextIco = \"\\n\".join(ico_lines)",
+      "color": "rgb(0, 200, 255)",
+      "created": "2026-06-01T09:43:42.463495",
+      "description": "Преобразует список Include/Exclude объектов в текстовые списки.",
+      "folder_id": "d6593ce4",
+      "icon": "⚙",
+      "id": "1f7de396",
+      "modified": "2026-06-01T09:43:42.463501",
+      "name": "Объекты в список строк",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "\"\"\"\nУзел для работы с пользовательскими данными объекта в Cinema 4D\n\nОписание узла:\nЭтот узел позволяет заменить список в пользовательских данных объекта по указанному ID.\n\nВходы:\n- Object: Объект, в котором находятся пользовательские данные\n- ID: Числовой ID параметра в пользовательских данных\n- List: Строка со списком для замены\n\nФункциональность:\n- При нажатии кнопки с ID 1 происходит проверка и замена списка\n- Если по указанному ID уже есть другое значение (не список), ничего не происходит\n- Если по указанному ID ничего нет, ничего не происходит\n- Если по указанному ID есть список, его содержимое заменяется\n\"\"\"\n\nimport c4d\n\ndef main():\n    \"\"\"\n    Основная функция узла\n    \"\"\"\n    obj = Object\n    param_id = int(ID) if ID is not None else 0\n    new_list_content = List\n\n    if not obj:\n        return False\n\n    user_data_container = obj.GetUserDataContainer()\n\n    found_desc_id = None\n    found_bc = None\n\n    for index, (desc_id, bc) in enumerate(user_data_container):\n        if len(desc_id) >= 2:\n            user_param_id = desc_id[1].id\n\n            if user_param_id == param_id:\n                found_desc_id = desc_id\n                found_bc = bc\n                break\n\n    if not found_desc_id or not found_bc:\n        return False\n\n    param_type = found_bc.GetLong(c4d.DESC_CUSTOMGUI)\n\n    if param_type == c4d.CUSTOMGUI_CYCLE or found_bc.GetData(c4d.DESC_CYCLE):\n\n        print(\"ДО ОБНОВЛЕНИЯ - текущий DESC_CYCLE:\")\n        old_cycle = found_bc.GetContainer(c4d.DESC_CYCLE)\n        if old_cycle:\n            for i in range(1, 20):\n                val = old_cycle.GetString(i)\n                if val:\n                    print(f\"  Индекс {i}: {repr(val)}\")\n\n        # Создаем новый контейнер\n        new_cycle = c4d.BaseContainer()\n\n        # Парсим входную строку\n        lines = new_list_content.replace('\\r\\n', '\\n').replace('\\r', '\\n').split('\\n')\n\n        print(\"\\nСОЗДАЁМ НОВЫЙ КОНТЕЙНЕР:\")\n        for line in lines:\n            line = line.strip()\n            if not line:\n                continue\n\n            parts = line.split(';')\n            if len(parts) < 2:\n                continue\n\n            try:\n                index = int(parts[0])\n                content = ';'.join(parts[1:])\n                new_cycle.SetString(index, content)\n                print(f\"  SetString({index}, {repr(content)})\")\n            except ValueError:\n                continue\n\n        print(f\"\\nПРОВЕРКА new_cycle ПЕРЕД УСТАНОВКОЙ:\")\n        for i in range(1, 20):\n            val = new_cycle.GetString(i)\n            if val:\n                print(f\"  Индекс {i}: {repr(val)}\")\n\n        # Устанавливаем новый контейнер\n        found_bc.SetContainer(c4d.DESC_CYCLE, new_cycle)\n        obj.SetUserDataContainer(found_desc_id, found_bc)\n\n        # Обновляем\n        obj.Message(c4d.MSG_UPDATE)\n        c4d.EventAdd()\n\n        # ПРОВЕРЯЕМ ЧТО ЗАПИСАЛОСЬ\n        print(\"\\nПРОВЕРКА ПОСЛЕ ЗАПИСИ В ОБЪЕКТ:\")\n        user_data_container_new = obj.GetUserDataContainer()\n        for desc_id, bc in user_data_container_new:\n            if len(desc_id) >= 2 and desc_id[1].id == param_id:\n                cycle = bc.GetContainer(c4d.DESC_CYCLE)\n                if cycle:\n                    for i in range(1, 20):\n                        val = cycle.GetString(i)\n                        if val:\n                            print(f\"  Индекс {i}: {repr(val)}\")\n                break\n\n        return True\n\n    return False",
+      "color": "rgb(255, 0, 77)",
+      "created": "2026-06-01T09:45:55.025023",
+      "description": "Этот узел позволяет заменить список в пользовательских данных объекта по указанному ID.",
+      "folder_id": "aa6eb637",
+      "icon": "🧪",
+      "id": "6a43241c",
+      "modified": "2026-06-01T09:45:55.025030",
+      "name": "Выподающий список",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "\"\"\"\nУзел для получения иерархии объектов в Cinema 4D\n\nОписание узла:\nЭтот узел принимает корневой объект на вход и рекурсивно собирает всю его иерархию,\nвозвращая различные типы данных для дальнейшей обработки в графе узлов.\n\nВходы:\n- In1: Корневой объект, чью иерархию нужно получить\n- In2: Булевый параметр для переключения начальной индексации (True - начинать с 1, False - начинать с 0)\n- In3: Числовой индекс для выбора конкретного объекта из иерархии\n- In4: Булевый параметр для упрощенного формата Out3 (True - только индекс и имя, False - индекс, имя и иконка)\n\nВыходы:\n- Out1: Список имен всех найденных дочерних объектов\n- Out2: Данные InExclude со всеми найденными объектами\n- Out3: Форматированный список строк с индексами, именами и ID иконок (или без иконок в зависимости от In4)\n- Out4: Конкретный объект, выбранный по индексу из In3\n\"\"\"\n\nimport c4d\n\ndef get_hierarchy_recursive(obj, data_list):\n    \"\"\"Рекурсивный сбор всех дочерних объектов в плоский список\"\"\"\n    while obj:\n        data_list.append(obj)\n\n        child = obj.GetDown()\n        if child:\n            get_hierarchy_recursive(child, data_list)\n\n        obj = obj.GetNext()\n\ndef main():\n    \"\"\"\n    Описание портов:\n    - In1: Вход для корневого объекта, чью иерархию нужно получить\n    - In2: Булевый параметр (True/False), при активации (True) индексация в Out3 начинается с 1 вместо 0\n    - In3: Число (целое или дробное), указывающее индекс элемента для выбора в Out4\n    - In4: Булевый параметр (True/False), при активации (True) в Out3 выводится только индекс и имя без ID иконки\n    - Out1: Список имен всех дочерних объектов (по одному имени на строку)\n    - Out2: Данные InExclude со всеми найденными объектами\n    - Out3: Форматированный список строк вида \"индекс;имя;ID_иконки\" или \"индекс;имя\" (в зависимости от In4)\n    - Out4: Объект по индексу, указанному в In3 (учитывает настройку In2)\n    \"\"\"\n    global Out1, Out2, Out3, Out4\n\n    root = In1\n    start_index_one = In2  # Булевый параметр для управления началом индексации с 1\n    element_index = int(In3) if In3 is not None else 0  # Номер элемента для выбора\n    simple_format = In4  # Булевый параметр для упрощенного формата (без иконки)\n    all_objects = []\n\n    # Собираем иерархию, если объект подан на вход\n    if root:\n        first_child = root.GetDown()\n        if first_child:\n            get_hierarchy_recursive(first_child, all_objects)\n\n    # Подготавливаем списки для вывода\n    names = []\n    inex = c4d.InExcludeData()\n    formatted_rows = []\n\n    for index, obj in enumerate(all_objects):\n        name = obj.GetName()\n        icon_id = obj.GetType() # ID типа объекта обычно равен ID его иконки\n\n        # Определяем индекс в зависимости от значения In2\n        adjusted_index = index + 1 if start_index_one else index\n\n        # 1. Список имен\n        names.append(name)\n\n        # 2. Тип учета (InExclude)\n        inex.InsertObject(obj, 0)\n\n        # 3. Форматированная строка\n        # В зависимости от значения In4 формируем строку с иконкой или без\n        if simple_format:\n            # Упрощенный формат: value;string\n            formatted_rows.append(\"{0};{1}\".format(adjusted_index, name))\n        else:\n            # Полный формат: value;string;iconid\n            formatted_rows.append(\"{0};{1};{2}\".format(adjusted_index, name, icon_id))\n\n    # Запись в выходные порты\n    Out1 = \"\\n\".join(names)\n    Out2 = inex\n    Out3 = \"\\n\".join(formatted_rows)\n\n    # Устанавливаем Out4 в объект, соответствующий индексу из In3\n    Out4 = None\n    if all_objects:  # Проверяем, что список объектов не пуст\n        # Корректируем индекс в зависимости от настройки In2\n        target_index = element_index\n        if start_index_one:\n            # Если индексация начинается с 1, уменьшаем указанный индекс на 1 для внутреннего использования\n            target_index = element_index - 1\n\n        # Проверяем, что индекс находится в допустимом диапазоне\n        if 0 <= target_index < len(all_objects):\n            Out4 = all_objects[target_index]",
+      "color": "rgb(0, 255, 136)",
+      "created": "2026-06-01T09:47:21.908177",
+      "description": "Этот узел принимает корневой объект на вход и рекурсивно собирает всю его иерархию, возвращая различные типы данных для дальнейшей обработки в графе узлов.",
+      "folder_id": "aa6eb637",
+      "icon": "🧪",
+      "id": "266e010b",
+      "modified": "2026-06-01T09:47:21.908183",
+      "name": "Доступ к иерархии",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "import c4d\n\ndef get_all_children(obj):\n    \"\"\"Рекурсивно собирает все дочерние объекты в список.\"\"\"\n    children = []\n    if not obj:\n        return children\n\n    child = obj.GetDown()\n    while child:\n        children.append(child)\n        children.extend(get_all_children(child))\n        child = child.GetNext()\n    return children\n\ndef main():\n    # Новые имена портов:\n    # Вход: Object (Link), ID (Integer)\n    # Выход: Objects (Data/InExclude)\n\n    global Objects\n\n    # 1. Проверка входящего объекта (порт Object)\n    if Object is None:\n        Objects = c4d.InExcludeData()\n        return\n\n    # 2. Сбор всей иерархии под объектом\n    hierarchy = get_all_children(Object)\n\n    # 3. Подготовка контейнера для выпадающего списка (UserData)\n    cycle_bc = c4d.BaseContainer()\n    for i, item in enumerate(hierarchy):\n        cycle_bc.SetString(i, item.GetName())\n\n    # Используем порт ID для поиска нужного параметра\n    user_data_id = int(ID)\n    found = False\n\n    # 4. Обновление User Data на входном объекте\n    for desc_id, bc in Object.GetUserDataContainer():\n        if desc_id[1].id == user_data_id:\n            found = True\n            old_cycle = bc.GetContainer(c4d.DESC_CYCLE)\n\n            # Обновляем интерфейс только если количество объектов изменилось\n            if len(old_cycle) != len(cycle_bc):\n                bc.SetContainer(c4d.DESC_CYCLE, cycle_bc)\n                Object.SetUserDataContainer(desc_id, bc)\n                c4d.EventAdd()\n            break\n\n    # 5. Если параметра с таким ID нет — создаем его\n    if not found:\n        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_LONG)\n        bc[c4d.DESC_NAME] = \"Hierarchy List\"\n        bc[c4d.DESC_CUSTOMGUI] = c4d.CUSTOMGUI_CYCLE\n        bc.SetContainer(c4d.DESC_CYCLE, cycle_bc)\n        Object.AddUserData(bc)\n        c4d.EventAdd()\n\n    # 6. Вывод списка для Corona Light (порт Objects)\n    inex_data = c4d.InExcludeData()\n    for node in hierarchy:\n        inex_data.InsertObject(node, 0)\n\n    Objects = inex_data",
+      "color": "rgb(255, 0, 77)",
+      "created": "2026-06-01T09:48:06.493681",
+      "description": "Рекурсивно собирает все дочерние объекты в список",
+      "folder_id": "aa6eb637",
+      "icon": "🧪",
+      "id": "5c107068",
+      "modified": "2026-06-01T09:48:06.493687",
+      "name": "Подобекты в лист",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
+      ]
+    },
+    {
+      "code": "import c4d\n\n# Переменная для хранения ID предыдущей камеры (чтобы не спамить обновлениями)\nlast_cam_id = None\n\ndef main():\n    global Camera, CamName, last_cam_id\n\n    doc = c4d.documents.GetActiveDocument()\n    if not doc: return\n\n    # 1. Берем только Render View (главный вид)\n    bd = doc.GetRenderBaseDraw()\n    if not bd: return\n\n    # 2. Получаем активную камеру\n    active_cam = bd.GetSceneCamera(doc)\n\n    # 3. ПРОВЕРКА: Если камера та же самая, ничего не делаем\n    current_id = active_cam.GetGUID() if active_cam else None\n\n    # Мы обновляем данные только если объект камеры физически изменился\n    if current_id != last_cam_id:\n        Camera = active_cam\n        CamName = active_cam.GetName() if active_cam else \"No Camera\"\n\n        # Запоминаем новую камеру\n        last_cam_id = current_id\n\n        # Просим C4D обновить порты Xpresso\n        c4d.EventAdd()\n\nif __name__=='__main__':\n    main()",
+      "color": "rgb(255, 0, 77)",
+      "created": "2026-06-01T09:48:55.863780",
+      "description": "Содержит активную камеру",
+      "folder_id": "aa6eb637",
+      "icon": "🧪",
+      "id": "f6dfb3c9",
+      "modified": "2026-06-01T09:48:55.863787",
+      "name": "Активная камера",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso"
       ]
     }
   ],
