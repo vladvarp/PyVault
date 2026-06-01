@@ -723,7 +723,13 @@
    #terminal-out::-webkit-scrollbar { width: 4px; }
    #terminal-out::-webkit-scrollbar-thumb { background: var(--border2); }
    
-   .tl { color: #cdd9e5; word-break: break-all; user-select: text; }
+.tl {
+  color: #cdd9e5;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  user-select: text;
+}
    .tl.err { color: #ff6b6b; }
    .tl.sys { color: var(--accent); font-style: italic; opacity: .75; }
    .tl.warn { color: #ffd700; }

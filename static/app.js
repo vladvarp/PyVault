@@ -1057,7 +1057,9 @@ async function pollLogs() {
     }
     logLastLen = logs.length;
   }
+  setTerminalPartialLine(data.partial || '');
   if (!data.running) {
+    setTerminalPartialLine('');
     if (!runFinishedShown) {
       runFinishedShown = true;
       addTermLine('— Завершено —', 'sys');
@@ -1077,11 +1079,145 @@ function clearTerminal() {
   document.getElementById('terminal-out').innerHTML = '<div class="tl sys">// Консоль</div>';
 }
 
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function xterm256ToHex(idx) {
+  if (idx < 0 || idx > 255) return null;
+  const base = [
+    '#000000', '#800000', '#008000', '#808000', '#000080', '#800080', '#008080', '#c0c0c0',
+    '#808080', '#ff0000', '#00ff00', '#ffff00', '#0000ff', '#ff00ff', '#00ffff', '#ffffff',
+  ];
+  if (idx < 16) return base[idx];
+  if (idx >= 16 && idx <= 231) {
+    const i = idx - 16;
+    const r = Math.floor(i / 36);
+    const g = Math.floor((i % 36) / 6);
+    const b = i % 6;
+    const level = [0, 95, 135, 175, 215, 255];
+    return `rgb(${level[r]}, ${level[g]}, ${level[b]})`;
+  }
+  const gray = 8 + (idx - 232) * 10;
+  return `rgb(${gray}, ${gray}, ${gray})`;
+}
+
+function ansiToHtml(text) {
+  const src = String(text ?? '');
+  let i = 0;
+  let out = '';
+  const st = { bold: false, italic: false, color: '' };
+
+  const styleStr = () => {
+    const s = [];
+    if (st.bold) s.push('font-weight:700');
+    if (st.italic) s.push('font-style:italic');
+    if (st.color) s.push(`color:${st.color}`);
+    return s.join(';');
+  };
+
+  const pushText = (chunk) => {
+    if (!chunk) return;
+    const safe = escHtml(chunk);
+    const style = styleStr();
+    out += style ? `<span style="${style}">${safe}</span>` : safe;
+  };
+
+  while (i < src.length) {
+    if (src[i] === '\u001b') {
+      // CSI: ESC [ ... final-byte
+      if (src[i + 1] === '[') {
+        const csiMatch = src.slice(i + 2).match(/^[0-9;?]*[ -/]*[@-~]/);
+        if (!csiMatch) {
+          i += 1;
+          continue;
+        }
+        const seq = csiMatch[0];
+        const finalByte = seq[seq.length - 1];
+        if (finalByte === 'm') {
+          const raw = seq.slice(0, -1);
+          const codes = raw.length ? raw.split(';').map(x => Number.parseInt(x, 10) || 0) : [0];
+          for (let c = 0; c < codes.length; c++) {
+            const code = codes[c];
+            if (code === 0) { st.bold = false; st.italic = false; st.color = ''; continue; }
+            if (code === 1) { st.bold = true; continue; }
+            if (code === 3) { st.italic = true; continue; }
+            if (code === 22) { st.bold = false; continue; }
+            if (code === 23) { st.italic = false; continue; }
+            if (code === 39) { st.color = ''; continue; }
+            if (code >= 30 && code <= 37) {
+              st.color = ['#000000','#800000','#008000','#808000','#000080','#800080','#008080','#c0c0c0'][code - 30];
+              continue;
+            }
+            if (code >= 90 && code <= 97) {
+              st.color = ['#808080','#ff0000','#00ff00','#ffff00','#0000ff','#ff00ff','#00ffff','#ffffff'][code - 90];
+              continue;
+            }
+            if (code === 38 && codes[c + 1] === 5) {
+              const color = xterm256ToHex(codes[c + 2]);
+              if (color) st.color = color;
+              c += 2;
+            }
+          }
+        }
+        // For non-color CSI (cursor moves/erase/etc) we just drop sequence.
+        i += 2 + seq.length;
+        continue;
+      }
+      // OSC: ESC ] ... BEL or ST
+      if (src[i + 1] === ']') {
+        let end = src.indexOf('\u0007', i + 2);
+        const stEnd = src.indexOf('\u001b\\', i + 2);
+        if (stEnd !== -1 && (end === -1 || stEnd < end)) end = stEnd + 1;
+        if (end === -1) {
+          i += 2;
+          continue;
+        }
+        i = end + 1;
+        continue;
+      }
+      // Any other ESC sequence: skip ESC char.
+      i += 1;
+      continue;
+    }
+    const nextEsc = src.indexOf('\u001b', i);
+    if (nextEsc === -1) {
+      pushText(src.slice(i));
+      break;
+    }
+    pushText(src.slice(i, nextEsc));
+    i = nextEsc;
+  }
+  return out;
+}
+
+function setTerminalPartialLine(text) {
+  const out = document.getElementById('terminal-out');
+  let partial = out.querySelector('.tl.partial');
+  if (!text) {
+    if (partial) partial.remove();
+    return;
+  }
+  if (!partial) {
+    partial = document.createElement('div');
+    partial.className = 'tl partial';
+    out.appendChild(partial);
+  }
+  partial.innerHTML = ansiToHtml(text);
+  out.scrollTop = out.scrollHeight;
+}
+
 function addTermLine(text, cls = '') {
   const out = document.getElementById('terminal-out');
+  const partial = out.querySelector('.tl.partial');
+  if (partial) partial.remove();
   const d = document.createElement('div');
   d.className = 'tl ' + cls;
-  d.textContent = text;
+  d.innerHTML = ansiToHtml(text);
   out.appendChild(d);
   out.scrollTop = out.scrollHeight;
 }

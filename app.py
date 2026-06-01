@@ -30,6 +30,7 @@ vault_state = default_vault_state()
 
 run_processes = {}   # sid → Popen
 run_logs = {}        # sid → [str]
+run_partials = {}    # sid → str (текущая строка без \n)
 run_files = {}       # sid → Path (временный .py в run_dir)
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
@@ -232,6 +233,7 @@ def api_run(sid):
 
             run_files[sid] = script_file
             run_logs[sid] = []
+            run_partials[sid] = ""
             try:
                 proc = subprocess.Popen(
                     python_run_args(script_file.name),
@@ -248,14 +250,33 @@ def api_run(sid):
                 run_processes[sid] = proc
 
                 def reader():
+                    buf = ""
                     try:
-                        for line in proc.stdout:
-                            run_logs.setdefault(sid, []).append(line.rstrip("\n"))
-                            if len(run_logs[sid]) > 2000:
-                                run_logs[sid] = run_logs[sid][-2000:]
+                        while True:
+                            ch = proc.stdout.read(1)
+                            if ch == "":
+                                break
+                            if ch == "\r":
+                                # Перерисовка текущей строки (spinner/progress).
+                                run_partials[sid] = buf
+                                continue
+                            if ch == "\n":
+                                run_logs.setdefault(sid, []).append(buf)
+                                if len(run_logs[sid]) > 2000:
+                                    run_logs[sid] = run_logs[sid][-2000:]
+                                buf = ""
+                                run_partials[sid] = ""
+                                continue
+                            buf += ch
+                            run_partials[sid] = buf
                     except Exception:
                         pass
                     finally:
+                        if buf:
+                            run_logs.setdefault(sid, []).append(buf)
+                            if len(run_logs[sid]) > 2000:
+                                run_logs[sid] = run_logs[sid][-2000:]
+                        run_partials[sid] = ""
                         try:
                             proc.wait()
                         except Exception:
@@ -311,6 +332,7 @@ def api_input(sid):
 def api_logs(sid):
     return jsonify({
         "logs": run_logs.get(sid, []),
+        "partial": run_partials.get(sid, ""),
         "running": sid in run_processes and run_processes[sid].poll() is None
     })
 
@@ -371,6 +393,7 @@ def api_project_new():
                 pass
         cleanup_run_file(sid)
     run_logs.clear()
+    run_partials.clear()
     vault_state = default_vault_state(name)
     return jsonify({"ok": True, "name": name, "state": vault_state})
 
