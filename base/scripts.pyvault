@@ -6,14 +6,16 @@
       "created": "2026-06-01T05:23:10.155631",
       "icon": "📦",
       "id": "c9b5bb80",
-      "name": "C4D XPresso"
+      "name": "C4D XPresso",
+      "parent_id": "95932936"
     },
     {
       "color": "rgb(0, 200, 255)",
       "created": "2026-06-01T05:23:56.317133",
       "icon": "📦",
       "id": "1f45e6c2",
-      "name": "C4D Scripts"
+      "name": "C4D Scripts",
+      "parent_id": "95932936"
     },
     {
       "color": "rgb(0, 200, 255)",
@@ -28,6 +30,14 @@
       "icon": "🏷",
       "id": "c997c815",
       "name": "Скрипты"
+    },
+    {
+      "color": "rgb(255, 0, 77)",
+      "created": "2026-06-01T08:38:03.197921",
+      "icon": "📂",
+      "id": "95932936",
+      "name": "Cinema 4D",
+      "parent_id": null
     }
   ],
   "scripts": [

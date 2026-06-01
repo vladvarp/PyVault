@@ -516,7 +516,183 @@
    .list-item .li-actions { display: none; gap: 4px; }
    .list-item:hover .li-actions { display: flex; }
 
-   /* ── TILES VIEW ─────────────────────────────────────────────── */
+   /* ── CARDS VIEW ─────────────────────────────────────────────── */
+   .cards-view {
+     display: grid;
+     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+     gap: 12px;
+     align-content: flex-start;
+   }
+
+   .card-item {
+     background: var(--bg2);
+     border: 1px solid var(--border);
+     border-radius: 12px;
+     cursor: pointer;
+     transition: all .18s;
+     overflow: hidden;
+     display: flex;
+     flex-direction: column;
+     position: relative;
+   }
+   .card-item:hover {
+     border-color: var(--si-color, var(--accent));
+     box-shadow: 0 4px 20px rgba(0,0,0,.4);
+     transform: translateY(-2px);
+   }
+   .card-item.card-folder:hover {
+     border-color: var(--fi-color, var(--accent));
+   }
+   .card-item.selected { border-color: var(--accent); background: rgba(0,255,136,.04); }
+   .card-item.drag-over { border-color: var(--accent) !important; background: rgba(0,255,136,.08) !important; transform: scale(1.02); }
+
+   /* Card header — code preview area */
+   .card-header {
+     height: 110px;
+     background: var(--bg);
+     border-bottom: 1px solid var(--border);
+     position: relative;
+     overflow: hidden;
+     display: flex;
+   }
+   .card-header::before {
+     content: '';
+     position: absolute; inset: 0;
+     background: linear-gradient(135deg, var(--si-color, var(--accent)), transparent 60%);
+     opacity: .06;
+     pointer-events: none;
+   }
+
+   .card-icon-wrap {
+     position: absolute;
+     top: 8px; left: 10px;
+     z-index: 2;
+   }
+   .card-icon { font-size: 26px; display: block; }
+   .card-run-dot {
+     position: absolute;
+     bottom: -2px; right: -2px;
+     width: 8px; height: 8px;
+     background: var(--accent);
+     border-radius: 50%;
+     animation: blink 1s ease-in-out infinite;
+   }
+   .card-pin {
+     position: absolute;
+     top: 8px; right: 8px;
+     font-size: 11px; opacity: .7;
+     z-index: 2;
+   }
+
+   .card-code-preview {
+     position: absolute;
+     inset: 0;
+     padding: 8px 10px 8px 44px;
+     overflow: hidden;
+   }
+   .card-code-preview pre {
+     font-family: var(--mono);
+     font-size: 9px;
+     line-height: 1.55;
+     color: var(--text3);
+     white-space: pre;
+     overflow: hidden;
+     pointer-events: none;
+   }
+
+   /* Card folder header */
+   .card-folder-header {
+     height: 80px;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+   }
+   .card-folder-thumb {
+     position: relative;
+     width: 70px; height: 54px;
+   }
+   .card-fi-tab {
+     position: absolute;
+     top: 0; left: 2px;
+     width: 28px; height: 10px;
+     border-radius: 5px 5px 0 0;
+     filter: brightness(1.3);
+   }
+   .card-fi-body {
+     position: absolute;
+     bottom: 0; left: 0; right: 0; height: 44px;
+     border-radius: 2px 8px 8px 8px;
+     display: flex; align-items: center; justify-content: center;
+     box-shadow: inset 0 -3px 8px rgba(0,0,0,.25);
+   }
+   .card-fi-body::after {
+     content: '';
+     position: absolute; inset: 0;
+     background: linear-gradient(to bottom, rgba(255,255,255,.12), transparent);
+     border-radius: inherit;
+   }
+
+   /* Card body */
+   .card-body {
+     padding: 10px 12px;
+     flex: 1;
+     display: flex;
+     flex-direction: column;
+     gap: 4px;
+   }
+   .card-name {
+     font-size: 12px;
+     font-weight: 600;
+     color: var(--text);
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+   }
+   .card-desc {
+     font-size: 10px;
+     color: var(--text2);
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+   }
+   .card-meta {
+     font-size: 10px;
+     color: var(--text3);
+   }
+   .card-folder-badge {
+     font-size: 9px;
+     color: var(--text3);
+     margin-top: auto;
+   }
+   .card-footer {
+     display: flex;
+     align-items: center;
+     gap: 6px;
+     margin-top: auto;
+   }
+   .card-tags { display: flex; gap: 3px; flex-wrap: wrap; flex: 1; }
+   .card-run-btn {
+     opacity: 0;
+     transition: opacity .15s;
+     padding: 2px 8px !important;
+     font-size: 10px !important;
+   }
+   .card-item:hover .card-run-btn { opacity: 1; }
+
+   /* ── DRAG STATES ────────────────────────────────────────────── */
+   .dragging { opacity: .45 !important; transform: scale(.97) !important; }
+   .drag-over {
+     border-color: var(--accent) !important;
+     background: rgba(0,255,136,.08) !important;
+     box-shadow: 0 0 0 2px rgba(0,255,136,.25) !important;
+   }
+   .sidebar-drag-over {
+     background: rgba(0,255,136,.12) !important;
+     color: var(--accent) !important;
+     border-radius: 6px;
+   }
+
+
    .tiles-view { display: flex; flex-direction: column; gap: 4px; }
    .tile-item {
      display: flex; align-items: center; gap: 12px;

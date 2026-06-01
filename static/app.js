@@ -803,6 +803,9 @@ function renderSidebar() {
   document.querySelectorAll('.nav-item[data-filter]').forEach(el => {
     el.classList.toggle('active', el.dataset.filter === currentFilter);
   });
+
+  // Sidebar drop targets (after DOM update)
+  setTimeout(attachSidebarDrop, 0);
 }
 
 function renderCanvas() {
@@ -879,6 +882,7 @@ function renderCanvas() {
   }
 
   if (currentView === 'grid')    renderGrid(c, folders, scripts);
+  else if (currentView === 'cards')   renderCards(c, folders, scripts);
   else if (currentView === 'tiles')   renderTiles(c, folders, scripts);
   else if (currentView === 'compact') renderCompact(c, folders, scripts);
   else renderList(c, folders, scripts);
@@ -1052,6 +1056,72 @@ function renderCompact(c, folders, scripts) {
 
   html += '</div>';
   c.innerHTML = html;
+  attachDrag();
+}
+
+function renderCards(c, folders, scripts) {
+  let html = '<div class="cards-view">';
+
+  folders.forEach(f => {
+    const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
+    const subCnt = state.folders.filter(sf => sf.parent_id === f.id && !trashedFolderIds.has(sf.id)).length;
+    html += `<div class="card-item card-folder" data-id="${f.id}"
+      style="--fi-color:${f.color}"
+      ondblclick="openFolder('${f.id}')"
+      onclick="selectItem(event,'f:${f.id}',this)"
+      oncontextmenu="showFolderCtx(event,'${f.id}')">
+      <div class="card-folder-header" style="background:${f.color}20;border-bottom:2px solid ${f.color}40">
+        <div class="card-folder-thumb">
+          <div class="card-fi-tab" style="background:${f.color}"></div>
+          <div class="card-fi-body" style="background:${f.color}">
+            <span style="font-size:22px">${f.icon}</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="card-name">${esc(f.name)}</div>
+        <div class="card-meta">${cnt} скриптов${subCnt ? ' · ' + subCnt + ' подпапок' : ''}</div>
+        <div class="card-folder-badge">📁 папка</div>
+      </div>
+    </div>`;
+  });
+
+  const pinned = scripts.filter(s => s.pinned);
+  const rest   = scripts.filter(s => !s.pinned);
+  [...pinned, ...rest].forEach(s => {
+    const lines = (s.code || '').split('\n').length;
+    const preview = (s.code || '').split('\n').slice(0, 6).map(l => esc(l)).join('\n');
+    const desc  = s.description ? esc(s.description.slice(0, 80)) : '';
+    const tags  = (s.tags || []).slice(0, 3).map(t => `<span class="si-tag">${esc(t)}</span>`).join('');
+    const running = isRunning(s.id);
+    html += `<div class="card-item card-script${s.pinned?' has-pin':''}" data-id="${s.id}"
+      style="--si-color:${s.color || 'var(--accent)'}"
+      ondblclick="openEditor('${s.id}')"
+      onclick="selectItem(event,'s:${s.id}',this)"
+      oncontextmenu="showScriptCtx(event,'${s.id}')">
+      <div class="card-header">
+        <div class="card-icon-wrap">
+          <span class="card-icon">${s.icon || '🐍'}</span>
+          ${running ? '<div class="card-run-dot"></div>' : ''}
+        </div>
+        <div class="card-code-preview"><pre>${preview || '# пустой скрипт'}</pre></div>
+        ${s.pinned ? '<span class="card-pin">📌</span>' : ''}
+      </div>
+      <div class="card-body">
+        <div class="card-name">${esc(s.name)}</div>
+        ${desc ? `<div class="card-desc">${desc}</div>` : ''}
+        <div class="card-footer">
+          <span class="card-meta">${lines} строк</span>
+          ${tags ? `<span class="card-tags">${tags}</span>` : ''}
+          <button class="card-run-btn tb-btn" onclick="quickRun(event,'${s.id}')" title="Запустить">▶</button>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  html += '</div>';
+  c.innerHTML = html;
+  attachDrag();
 }
 
 function scriptIconHtml(s) {
@@ -1076,7 +1146,8 @@ function renderList(c, folders, scripts) {
   folders.forEach(f => {
     const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
     const subCnt = state.folders.filter(sf => sf.parent_id === f.id && !trashedFolderIds.has(sf.id)).length;
-    html += `<div class="list-item folder-row" ondblclick="openFolder('${f.id}')"
+    html += `<div class="list-item folder-row" data-id="${f.id}" ondblclick="openFolder('${f.id}')"
+      onclick="selectItem(event,'f:${f.id}',this)"
       oncontextmenu="showFolderCtx(event,'${f.id}')">
       <div class="li-icon">${f.icon}</div>
       <div style="width:10px;height:10px;border-radius:50%;background:${f.color};flex-shrink:0"></div>
@@ -1089,6 +1160,7 @@ function renderList(c, folders, scripts) {
   scripts.forEach(s => {
     html += `<div class="list-item" data-id="${s.id}" style="--item-color:${s.color||'var(--accent)'}"
       ondblclick="openEditor('${s.id}')"
+      onclick="selectItem(event,'s:${s.id}',this)"
       oncontextmenu="showScriptCtx(event,'${s.id}')">
       <div class="li-icon">${s.icon||'🐍'}</div>
       <div class="li-info">
@@ -1102,6 +1174,7 @@ function renderList(c, folders, scripts) {
   });
   html += '</div>';
   c.innerHTML = html;
+  attachDrag();
 }
 
 // ── Navigation ───────────────────────────────────────────────────
@@ -1136,31 +1209,154 @@ function selectItem(e, key, el) {
 
 // ── Drag & Drop ──────────────────────────────────────────────────
 function attachDrag() {
-  document.querySelectorAll('.script-icon').forEach(el => {
+  // Scripts are draggable
+  document.querySelectorAll('.script-icon, .tile-item.script-tile, .card-item.card-script, .compact-item:not(.compact-folder), .list-item:not(.folder-row)').forEach(el => {
+    if (!el.dataset.id) return;
     el.draggable = true;
     el.addEventListener('dragstart', ev => {
       ev.dataTransfer.setData('scriptId', el.dataset.id);
+      ev.dataTransfer.setData('dragType', 'script');
       ev.dataTransfer.effectAllowed = 'move';
+      el.classList.add('dragging');
     });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
   });
-  document.querySelectorAll('.folder-icon').forEach(el => {
-    el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('selected'); });
-    el.addEventListener('dragleave', () => el.classList.remove('selected'));
+
+  // Folders are draggable (to move into other folders)
+  document.querySelectorAll('.folder-icon, .tile-item.folder-tile, .card-item.card-folder, .compact-item.compact-folder, .list-item.folder-row').forEach(el => {
+    if (!el.dataset.id) return;
+    el.draggable = true;
+    el.addEventListener('dragstart', ev => {
+      ev.dataTransfer.setData('folderId', el.dataset.id);
+      ev.dataTransfer.setData('dragType', 'folder');
+      ev.dataTransfer.effectAllowed = 'move';
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  });
+
+  // Folder icons are drop targets (accept scripts and other folders)
+  document.querySelectorAll('.folder-icon, .tile-item.folder-tile, .card-item.card-folder, .compact-item.compact-folder, .list-item.folder-row').forEach(el => {
+    el.addEventListener('dragover', ev => {
+      ev.preventDefault();
+      // Don't allow folder to drop onto itself
+      const dragFid = ev.dataTransfer.types.includes('text/plain') ? null : null;
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', ev => {
+      if (!el.contains(ev.relatedTarget)) el.classList.remove('drag-over');
+    });
     el.addEventListener('drop', async ev => {
       ev.preventDefault();
-      el.classList.remove('selected');
-      const sid = ev.dataTransfer.getData('scriptId');
-      if (!sid) return;
-      const fid = el.dataset.id;
-      await api('/api/script/' + sid, 'PUT', { folder_id: fid });
-      const s = state.scripts.find(x => x.id === sid);
-      if (s) s.folder_id = fid;
-      render();
-      touchProject();
-      toast(`Перемещён в папку`);
+      el.classList.remove('drag-over');
+      const targetFid = el.dataset.id;
+      const dragType = ev.dataTransfer.getData('dragType');
+
+      if (dragType === 'script') {
+        const sid = ev.dataTransfer.getData('scriptId');
+        if (!sid) return;
+        await api('/api/script/' + sid, 'PUT', { folder_id: targetFid });
+        const s = state.scripts.find(x => x.id === sid);
+        if (s) s.folder_id = targetFid;
+        render(); touchProject();
+        toast(`📁 Скрипт перемещён в папку`);
+      } else if (dragType === 'folder') {
+        const srcFid = ev.dataTransfer.getData('folderId');
+        if (!srcFid || srcFid === targetFid) return;
+        // Prevent moving a folder into its own descendant
+        const subIds = getAllSubFolderIds(srcFid);
+        if (subIds.includes(targetFid)) {
+          toast('⚠ Нельзя поместить папку в свою подпапку', 'err');
+          return;
+        }
+        await api('/api/folder/' + srcFid, 'PUT', { parent_id: targetFid });
+        const f = state.folders.find(x => x.id === srcFid);
+        if (f) f.parent_id = targetFid;
+        openTreeNodes.add(targetFid);
+        render(); touchProject();
+        toast(`📁 Папка перемещена`);
+      }
     });
   });
+
+  // Make sidebar folder tree items drop targets too
+  attachSidebarDrop();
 }
+
+function attachSidebarDrop() {
+  document.querySelectorAll('#folders-nav .nav-item.tree-item').forEach(el => {
+    const fid = (el.dataset.filter || '').replace('folder:', '');
+    if (!fid) return;
+
+    el.addEventListener('dragover', ev => {
+      ev.preventDefault();
+      el.classList.add('sidebar-drag-over');
+    });
+    el.addEventListener('dragleave', ev => {
+      if (!el.contains(ev.relatedTarget)) el.classList.remove('sidebar-drag-over');
+    });
+    el.addEventListener('drop', async ev => {
+      ev.preventDefault();
+      el.classList.remove('sidebar-drag-over');
+      const dragType = ev.dataTransfer.getData('dragType');
+
+      if (dragType === 'script') {
+        const sid = ev.dataTransfer.getData('scriptId');
+        if (!sid) return;
+        await api('/api/script/' + sid, 'PUT', { folder_id: fid });
+        const s = state.scripts.find(x => x.id === sid);
+        if (s) s.folder_id = fid;
+        render(); touchProject();
+        toast(`📁 Скрипт перемещён в папку`);
+      } else if (dragType === 'folder') {
+        const srcFid = ev.dataTransfer.getData('folderId');
+        if (!srcFid || srcFid === fid) return;
+        const subIds = getAllSubFolderIds(srcFid);
+        if (subIds.includes(fid)) {
+          toast('⚠ Нельзя поместить папку в свою подпапку', 'err');
+          return;
+        }
+        await api('/api/folder/' + srcFid, 'PUT', { parent_id: fid });
+        const f = state.folders.find(x => x.id === srcFid);
+        if (f) f.parent_id = fid;
+        openTreeNodes.add(fid);
+        render(); touchProject();
+        toast(`📁 Папка перемещена`);
+      }
+    });
+  });
+
+  // "Все файлы" nav item — drop here to remove from folder / move to root
+  const allNav = document.querySelector('.nav-item[data-filter="all"]');
+  if (allNav) {
+    allNav.addEventListener('dragover', ev => { ev.preventDefault(); allNav.classList.add('sidebar-drag-over'); });
+    allNav.addEventListener('dragleave', ev => { if (!allNav.contains(ev.relatedTarget)) allNav.classList.remove('sidebar-drag-over'); });
+    allNav.addEventListener('drop', async ev => {
+      ev.preventDefault();
+      allNav.classList.remove('sidebar-drag-over');
+      const dragType = ev.dataTransfer.getData('dragType');
+      if (dragType === 'script') {
+        const sid = ev.dataTransfer.getData('scriptId');
+        if (!sid) return;
+        await api('/api/script/' + sid, 'PUT', { folder_id: null });
+        const s = state.scripts.find(x => x.id === sid);
+        if (s) s.folder_id = null;
+        render(); touchProject();
+        toast('📄 Скрипт перемещён в корень');
+      } else if (dragType === 'folder') {
+        const srcFid = ev.dataTransfer.getData('folderId');
+        if (!srcFid) return;
+        await api('/api/folder/' + srcFid, 'PUT', { parent_id: null });
+        const f = state.folders.find(x => x.id === srcFid);
+        if (f) f.parent_id = null;
+        render(); touchProject();
+        toast('📁 Папка перемещена в корень');
+      }
+    });
+  }
+}
+
+
 
 // ── Editor ───────────────────────────────────────────────────────
 function openEditor(id) {

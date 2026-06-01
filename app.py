@@ -346,6 +346,7 @@ def api_folder_create():
         "name": d.get("name", "Новая папка"),
         "color": d.get("color", "#6366f1"),
         "icon": d.get("icon", "📁"),
+        "parent_id": d.get("parent_id", None),
         "created": datetime.now().isoformat(),
     }
     vault_state["folders"].append(f)
