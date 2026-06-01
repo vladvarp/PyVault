@@ -6,8 +6,8 @@
 let state = { project_name: '', folders: [], scripts: [], settings: {} };
 let currentScriptId = null;
 let currentFolder    = null;   // null = root
-let currentFilter    = 'all';  // all | pinned | folder:{id}
-let currentView      = 'grid'; // grid | list
+let currentFilter    = 'all';  // all | pinned | folder:{id} | trash
+let currentView      = 'grid'; // grid | tiles | compact | list
 let sortMode         = 'modified';
 let ctxTargetId      = null;
 let ctxFolderId      = null;
@@ -17,11 +17,17 @@ let logTimer         = null;
 let logLastLen       = 0;
 let runFinishedShown = false;
 let hasUnsavedChanges = false;
-let savedProjectSnapshot = null;  // JSON baseline последнего сохранённого .pyvault
-let projectFileLabel   = null;    // имя привязанного файла
+let savedProjectSnapshot = null;
+let projectFileLabel   = null;
 let _projectFileHandle = null;
 let _confirmResolver   = null;
 let _isWindows         = false;
+
+// ── Folder tree & trash state ────────────────────────────────────
+let openTreeNodes = new Set();   // expanded folder IDs in sidebar tree
+let trashedScriptIds = new Set();
+let trashedFolderIds = new Set();
+const TRASH_KEY = 'pyvault-trash';
 
 const COLORS = ['#00ff88','#00c8ff','#ff004d','#ffd700','#9d4edd','#ff6b35','#2ec4b6','#e63946','#06d6a0','#f72585'];
 const PY_KEYWORDS = new Set([
@@ -38,6 +44,200 @@ const PY_BUILTINS = new Set([
 ]);
 const SCRIPT_ICONS = ['🐍','⚡','🔧','🛠','📊','🤖','🧪','🔍','💡','🚀','🎯','🔑','📡','🧩','🌐','🔐','💾','📈','🗂','⚙'];
 const FOLDER_ICONS = ['📁','📂','🗂','💼','🗃','📦','🎒','🏷','🧲','🔬'];
+
+// ── Trash management ─────────────────────────────────────────────
+function loadTrash() {
+  try {
+    const data = JSON.parse(localStorage.getItem(TRASH_KEY) || '{}');
+    trashedScriptIds = new Set(data.scripts || []);
+    trashedFolderIds = new Set(data.folders || []);
+  } catch { trashedScriptIds = new Set(); trashedFolderIds = new Set(); }
+}
+
+function saveTrash() {
+  localStorage.setItem(TRASH_KEY, JSON.stringify({
+    scripts: [...trashedScriptIds],
+    folders: [...trashedFolderIds],
+  }));
+}
+
+function getAllSubFolderIds(folderId) {
+  const result = [];
+  state.folders.filter(f => f.parent_id === folderId).forEach(c => {
+    result.push(c.id);
+    result.push(...getAllSubFolderIds(c.id));
+  });
+  return result;
+}
+
+function trashScript(id) {
+  trashedScriptIds.add(id);
+  saveTrash();
+  if (currentScriptId === id) closeEditor();
+  render();
+  touchProject();
+  toast('🗑 Скрипт перемещён в корзину');
+}
+
+function trashFolder(id) {
+  const subIds = getAllSubFolderIds(id);
+  [id, ...subIds].forEach(fid => trashedFolderIds.add(fid));
+  state.scripts.forEach(s => {
+    if ([id, ...subIds].includes(s.folder_id)) trashedScriptIds.add(s.id);
+  });
+  saveTrash();
+  if (currentFolder === id || subIds.includes(currentFolder)) goRoot();
+  render();
+  touchProject();
+  toast('🗑 Папка перемещена в корзину');
+}
+
+function restoreFromTrash(type, id) {
+  if (type === 'script') {
+    trashedScriptIds.delete(id);
+    toast('↩ Скрипт восстановлен');
+  } else {
+    trashedFolderIds.delete(id);
+    // Also restore scripts that were exclusively in this folder
+    state.scripts.filter(s => s.folder_id === id).forEach(s => {
+      trashedScriptIds.delete(s.id);
+    });
+    toast('↩ Папка восстановлена');
+  }
+  saveTrash();
+  render();
+  touchProject();
+}
+
+async function permanentlyDeleteScript(id) {
+  const s = state.scripts.find(x => x.id === id);
+  const ok = await showConfirm({
+    title: 'Удалить навсегда?',
+    message: `«${s ? s.name : id}» будет удалён безвозвратно.`,
+    okText: 'Удалить', danger: true,
+  });
+  if (!ok) return;
+  await api('/api/script/' + id, 'DELETE');
+  state.scripts = state.scripts.filter(x => x.id !== id);
+  trashedScriptIds.delete(id);
+  saveTrash();
+  render();
+  touchProject();
+  toast('Удалено безвозвратно', 'err');
+}
+
+async function permanentlyDeleteFolder(id) {
+  const f = state.folders.find(x => x.id === id);
+  const ok = await showConfirm({
+    title: 'Удалить папку навсегда?',
+    message: `«${f ? f.name : id}» и её содержимое будут удалены безвозвратно.`,
+    okText: 'Удалить', danger: true,
+  });
+  if (!ok) return;
+  const subIds = getAllSubFolderIds(id);
+  // Delete scripts in these folders
+  for (const fid of [id, ...subIds]) {
+    const scripts = state.scripts.filter(s => s.folder_id === fid);
+    for (const s of scripts) {
+      await api('/api/script/' + s.id, 'DELETE');
+      trashedScriptIds.delete(s.id);
+    }
+    state.scripts = state.scripts.filter(s => s.folder_id !== fid);
+    await api('/api/folder/' + fid, 'DELETE');
+    state.folders = state.folders.filter(x => x.id !== fid);
+    trashedFolderIds.delete(fid);
+  }
+  saveTrash();
+  render();
+  touchProject();
+  toast('Папка удалена безвозвратно', 'err');
+}
+
+async function emptyTrash() {
+  const cnt = trashedScriptIds.size + trashedFolderIds.size;
+  if (!cnt) { toast('Корзина и так пуста', 'info'); return; }
+  const ok = await showConfirm({
+    title: 'Очистить корзину?',
+    message: `${cnt} элементов будет удалено безвозвратно.`,
+    okText: 'Очистить', danger: true,
+  });
+  if (!ok) return;
+  for (const id of [...trashedScriptIds]) {
+    await api('/api/script/' + id, 'DELETE');
+    state.scripts = state.scripts.filter(x => x.id !== id);
+  }
+  for (const id of [...trashedFolderIds]) {
+    await api('/api/folder/' + id, 'DELETE');
+    state.folders = state.folders.filter(x => x.id !== id);
+  }
+  trashedScriptIds.clear();
+  trashedFolderIds.clear();
+  saveTrash();
+  render();
+  touchProject();
+  toast('🗑 Корзина очищена');
+}
+
+// ── Folder tree helpers ──────────────────────────────────────────
+function buildFolderTree(folders) {
+  const map = new Map();
+  const visible = folders.filter(f => !trashedFolderIds.has(f.id));
+  visible.forEach(f => map.set(f.id, { ...f, children: [] }));
+  const roots = [];
+  visible.forEach(f => {
+    if (f.parent_id && map.has(f.parent_id)) {
+      map.get(f.parent_id).children.push(map.get(f.id));
+    } else {
+      roots.push(map.get(f.id));
+    }
+  });
+  return roots;
+}
+
+function renderFolderTreeNode(node, depth) {
+  const cnt = state.scripts.filter(s => s.folder_id === node.id && !trashedScriptIds.has(s.id)).length;
+  const hasChildren = node.children.length > 0;
+  const isExpanded = openTreeNodes.has(node.id);
+  const isActive = currentFilter === 'folder:' + node.id;
+  const pl = 12 + depth * 14;
+  const toggleHtml = hasChildren
+    ? `<span class="tree-toggle" onclick="event.stopPropagation();toggleTreeNode('${node.id}')">${isExpanded ? '▾' : '▸'}</span>`
+    : `<span class="tree-toggle invisible"></span>`;
+
+  return `<div class="tree-node">
+    <div class="nav-item tree-item${isActive ? ' active' : ''}"
+      style="padding-left:${pl}px"
+      data-filter="folder:${node.id}"
+      onclick="setFilter('folder:${node.id}',this)"
+      oncontextmenu="folderCtx(event,'${node.id}')">
+      ${toggleHtml}
+      <span class="folder-dot" style="background:${node.color}"></span>
+      <span class="folder-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${node.icon} ${esc(node.name)}</span>
+      <span class="nav-count">${cnt}</span>
+    </div>
+    ${hasChildren && isExpanded ? `<div class="tree-children">${node.children.map(c => renderFolderTreeNode(c, depth + 1)).join('')}</div>` : ''}
+  </div>`;
+}
+
+function toggleTreeNode(id) {
+  if (openTreeNodes.has(id)) openTreeNodes.delete(id);
+  else openTreeNodes.add(id);
+  renderSidebar();
+}
+
+function getFolderPath(folderId) {
+  const path = [];
+  let id = folderId;
+  const visited = new Set();
+  while (id && !visited.has(id)) {
+    visited.add(id);
+    const f = state.folders.find(x => x.id === id);
+    if (!f) break;
+    path.unshift(f);
+    id = f.parent_id || null;
+  }
+  return path;
+}
 
 // ── Project snapshot / dirty vs .pyvault file ────────────────────
 function normalizeProjectForSnapshot(data) {
@@ -59,6 +259,7 @@ function normalizeProjectForSnapshot(data) {
     name: f.name,
     color: f.color,
     icon: f.icon,
+    parent_id: f.parent_id || null,
   })).sort((a, b) => a.id.localeCompare(b.id));
 
   return JSON.stringify({
@@ -471,6 +672,9 @@ async function init() {
   const drivesInfo = await api('/api/drives');
   _isWindows = !!(drivesInfo && drivesInfo.is_windows);
 
+  loadTrash();
+  initSidebarResize();
+
   state = await api('/api/state');
   document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
   document.getElementById('proj-name').addEventListener('input', e => {
@@ -514,6 +718,13 @@ async function init() {
     projectFileLabel = restoredHandle.name;
     updateProjectFileLabel();
     await addToRecentProjects(restoredHandle, state.project_name);
+  }
+
+  // Restore view button state
+  const vbtn = document.getElementById('vbtn-' + currentView);
+  if (vbtn) {
+    document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
+    vbtn.classList.add('active');
   }
 
   setProjectBaseline(null);
@@ -575,22 +786,18 @@ function render() {
 
 function renderSidebar() {
   const nav = document.getElementById('folders-nav');
-  nav.innerHTML = state.folders.map(f => {
-    const cnt = state.scripts.filter(s => s.folder_id === f.id).length;
-    return `<div class="nav-item${currentFilter==='folder:'+f.id?' active':''}"
-      data-filter="folder:${f.id}"
-      onclick="setFilter('folder:${f.id}',this)"
-      oncontextmenu="folderCtx(event,'${f.id}')">
-      <span class="folder-dot" style="background:${f.color}"></span>
-      ${f.icon} ${esc(f.name)}
-      <span class="nav-count">${cnt}</span>
-    </div>`;
-  }).join('');
+  const tree = buildFolderTree(state.folders);
+  nav.innerHTML = tree.length
+    ? tree.map(n => renderFolderTreeNode(n, 0)).join('')
+    : `<div style="padding:8px 14px;font-size:10px;color:var(--text3)">Нет папок</div>`;
 
   // counts
-  document.getElementById('cnt-all').textContent = state.scripts.length;
-  document.getElementById('cnt-pin').textContent = state.scripts.filter(s => s.pinned).length;
-  document.getElementById('cnt-none').textContent = state.scripts.filter(s => !s.folder_id).length;
+  const visScripts = state.scripts.filter(s => !trashedScriptIds.has(s.id));
+  document.getElementById('cnt-all').textContent  = visScripts.length;
+  document.getElementById('cnt-pin').textContent  = visScripts.filter(s => s.pinned).length;
+  document.getElementById('cnt-none').textContent = visScripts.filter(s => !s.folder_id).length;
+  const trashEl = document.getElementById('cnt-trash');
+  if (trashEl) trashEl.textContent = trashedScriptIds.size + trashedFolderIds.size;
 
   // active state
   document.querySelectorAll('.nav-item[data-filter]').forEach(el => {
@@ -600,42 +807,43 @@ function renderSidebar() {
 
 function renderCanvas() {
   const c = document.getElementById('canvas');
-
-  // Breadcrumb
   const bc = document.getElementById('breadcrumb');
+
+  // ── Trash view ───────────────────────────────────────────────
+  if (currentFilter === 'trash') {
+    bc.innerHTML = `<span class="bc-current" style="color:var(--accent3)">🗑 Корзина</span>`;
+    renderTrashView(c);
+    return;
+  }
+
+  // ── Breadcrumb ───────────────────────────────────────────────
   if (currentFolder) {
-    const f = state.folders.find(x => x.id === currentFolder);
-    bc.innerHTML = `<span class="bc-item" onclick="goRoot()">🏠 Все</span>
-      <span class="bc-sep">›</span>
-      <span class="bc-current">${f ? f.icon+' '+esc(f.name) : '?'}</span>`;
+    const path = getFolderPath(currentFolder);
+    bc.innerHTML = `<span class="bc-item" onclick="goRoot()">🏠 Все</span>` +
+      path.map((f, i) => {
+        const isLast = i === path.length - 1;
+        return `<span class="bc-sep">›</span>` + (isLast
+          ? `<span class="bc-current">${f.icon} ${esc(f.name)}</span>`
+          : `<span class="bc-item" onclick="openFolder('${f.id}')">${f.icon} ${esc(f.name)}</span>`);
+      }).join('');
   } else {
     bc.innerHTML = '';
   }
 
   const q = document.getElementById('search-box').value.toLowerCase();
 
-  // Filter scripts
-  let scripts = state.scripts.filter(s => {
-    // When browsing a specific folder (double-clicked)
+  // ── Filter scripts ───────────────────────────────────────────
+  let scripts = state.scripts.filter(s => !trashedScriptIds.has(s.id)).filter(s => {
     if (currentFolder !== null) return s.folder_id === currentFolder;
-
     if (currentFilter === 'pinned') return s.pinned;
     if (currentFilter === 'none')   return !s.folder_id;
     if (currentFilter.startsWith('folder:')) {
       return s.folder_id === currentFilter.split(':')[1];
     }
-    // 'all' filter at root: hide scripts that belong to a folder
     if (currentFilter === 'all') return !s.folder_id;
-
-    if (q) {
-      return s.name.toLowerCase().includes(q) ||
-        (s.description||'').toLowerCase().includes(q) ||
-        (s.tags||[]).some(t => t.toLowerCase().includes(q));
-    }
     return true;
   });
 
-  // Apply search query on top of filter
   if (q) {
     scripts = scripts.filter(s =>
       s.name.toLowerCase().includes(q) ||
@@ -649,10 +857,16 @@ function renderCanvas() {
   else if (sortMode === 'lines') scripts.sort((a,b) => (b.code||'').split('\n').length - (a.code||'').split('\n').length);
   else scripts.sort((a,b) => (b.modified||'').localeCompare(a.modified||''));
 
-  // Folders to show (only when in root / all-scripts view)
+  // ── Folders to show ──────────────────────────────────────────
   let folders = [];
-  if (!currentFolder && currentFilter === 'all' && !q) {
-    folders = state.folders;
+  if (!q || currentFolder) {
+    const parentId = currentFolder || null;
+    if (currentFilter === 'all' || currentFolder !== null) {
+      folders = state.folders.filter(f =>
+        !trashedFolderIds.has(f.id) && (f.parent_id || null) === parentId
+      );
+      if (q) folders = folders.filter(f => f.name.toLowerCase().includes(q));
+    }
   }
 
   if (!scripts.length && !folders.length) {
@@ -664,19 +878,72 @@ function renderCanvas() {
     return;
   }
 
-  if (currentView === 'grid') {
-    renderGrid(c, folders, scripts);
-  } else {
-    renderList(c, folders, scripts);
+  if (currentView === 'grid')    renderGrid(c, folders, scripts);
+  else if (currentView === 'tiles')   renderTiles(c, folders, scripts);
+  else if (currentView === 'compact') renderCompact(c, folders, scripts);
+  else renderList(c, folders, scripts);
+}
+
+function renderTrashView(c) {
+  const trashedScripts = state.scripts.filter(s => trashedScriptIds.has(s.id));
+  const trashedFolders = state.folders.filter(f => trashedFolderIds.has(f.id));
+  const total = trashedScripts.length + trashedFolders.length;
+
+  if (!total) {
+    c.innerHTML = `<div class="empty">
+      <div class="empty-emoji">🗑</div>
+      <div class="empty-title">Корзина пуста</div>
+      <div class="empty-sub">Удалённые скрипты и папки появятся здесь</div>
+    </div>`;
+    return;
   }
+
+  let html = `<div class="trash-toolbar">
+    <span style="font-size:11px;color:var(--text2)">${total} элемент${total===1?'':'ов'}</span>
+    <button class="tb-btn danger" onclick="emptyTrash()" style="padding:4px 10px;font-size:11px">🗑 Очистить корзину</button>
+  </div><div class="list-view">`;
+
+  trashedFolders.forEach(f => {
+    const cnt = state.scripts.filter(s => s.folder_id === f.id).length;
+    html += `<div class="list-item folder-row trash-item">
+      <div class="li-icon">${f.icon}</div>
+      <div style="width:8px;height:8px;border-radius:50%;background:${f.color};flex-shrink:0"></div>
+      <div class="li-info">
+        <div class="li-name">${esc(f.name)}</div>
+        <div class="li-meta">${cnt} скриптов · папка</div>
+      </div>
+      <div class="li-actions">
+        <button class="tb-btn" onclick="restoreFromTrash('folder','${f.id}')" style="padding:3px 8px;font-size:10px" title="Восстановить">↩</button>
+        <button class="tb-btn danger" onclick="permanentlyDeleteFolder('${f.id}')" style="padding:3px 8px;font-size:10px" title="Удалить навсегда">✕</button>
+      </div>
+    </div>`;
+  });
+
+  trashedScripts.forEach(s => {
+    const lines = (s.code || '').split('\n').length;
+    html += `<div class="list-item trash-item" style="--item-color:${s.color||'var(--accent)'}">
+      <div class="li-icon">${s.icon || '🐍'}</div>
+      <div class="li-info">
+        <div class="li-name">${esc(s.name)}</div>
+        <div class="li-meta">${lines} строк · скрипт</div>
+      </div>
+      <div class="li-actions">
+        <button class="tb-btn" onclick="restoreFromTrash('script','${s.id}')" style="padding:3px 8px;font-size:10px" title="Восстановить">↩</button>
+        <button class="tb-btn danger" onclick="permanentlyDeleteScript('${s.id}')" style="padding:3px 8px;font-size:10px" title="Удалить навсегда">✕</button>
+      </div>
+    </div>`;
+  });
+
+  html += '</div>';
+  c.innerHTML = html;
 }
 
 function renderGrid(c, folders, scripts) {
   let html = '<div class="icon-grid">';
 
-  // Folders as Windows-style icons
   folders.forEach(f => {
-    const cnt = state.scripts.filter(s => s.folder_id === f.id).length;
+    const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
+    const subCnt = state.folders.filter(sf => sf.parent_id === f.id && !trashedFolderIds.has(sf.id)).length;
     html += `<div class="folder-icon" data-id="${f.id}"
       ondblclick="openFolder('${f.id}')"
       onclick="selectItem(event,'f:${f.id}',this)"
@@ -686,20 +953,105 @@ function renderGrid(c, folders, scripts) {
         <div class="fi-face">${f.icon}</div>
       </div>
       <div class="fi-name">${esc(f.name)}</div>
-      <div class="fi-count">${cnt} скрипт${cnt===1?'':'ов'}</div>
+      <div class="fi-count">${cnt} скр.${subCnt ? ' · '+subCnt+' папок' : ''}</div>
     </div>`;
   });
 
-  // Pinned scripts first
+  const pinned = scripts.filter(s => s.pinned);
+  const rest   = scripts.filter(s => !s.pinned);
+  [...pinned, ...rest].forEach(s => { html += scriptIconHtml(s); });
+
+  html += '</div>';
+  c.innerHTML = html;
+  attachDrag();
+}
+
+function renderTiles(c, folders, scripts) {
+  let html = '<div class="tiles-view">';
+
+  folders.forEach(f => {
+    const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
+    const subCnt = state.folders.filter(sf => sf.parent_id === f.id && !trashedFolderIds.has(sf.id)).length;
+    html += `<div class="tile-item folder-tile" data-id="${f.id}"
+      style="--fi-color:${f.color}"
+      ondblclick="openFolder('${f.id}')"
+      onclick="selectItem(event,'f:${f.id}',this)"
+      oncontextmenu="showFolderCtx(event,'${f.id}')">
+      <div class="tile-folder-body" style="--fi-color:${f.color}">
+        <div class="tile-fi-tab"></div>
+        <div class="tile-fi-face">${f.icon}</div>
+      </div>
+      <div class="tile-info">
+        <div class="tile-name">${esc(f.name)}</div>
+        <div class="tile-meta">${cnt} скриптов${subCnt ? ' · '+subCnt+' подпапок' : ''}</div>
+      </div>
+    </div>`;
+  });
+
   const pinned = scripts.filter(s => s.pinned);
   const rest   = scripts.filter(s => !s.pinned);
   [...pinned, ...rest].forEach(s => {
-    html += scriptIconHtml(s);
+    const lines = (s.code || '').split('\n').length;
+    const desc  = s.description ? esc(s.description.slice(0, 50)) : '';
+    const tags  = (s.tags || []).slice(0, 3).map(t => `<span class="si-tag">${esc(t)}</span>`).join('');
+    html += `<div class="tile-item script-tile${s.pinned ? ' has-pin' : ''}" data-id="${s.id}"
+      style="--si-color:${s.color || 'var(--accent)'}"
+      ondblclick="openEditor('${s.id}')"
+      onclick="selectItem(event,'s:${s.id}',this)"
+      oncontextmenu="showScriptCtx(event,'${s.id}')">
+      <div class="tile-icon">${s.icon || '🐍'}</div>
+      <div class="tile-info">
+        <div class="tile-name">${esc(s.name)}</div>
+        <div class="tile-meta">${lines} строк${desc ? ' · ' + desc : ''}${tags ? ' &nbsp;' + tags : ''}</div>
+      </div>
+      ${s.pinned ? '<span class="tile-pin">📌</span>' : ''}
+      <div class="tile-actions">
+        <button class="tb-btn" onclick="quickRun(event,'${s.id}')" style="padding:3px 8px;font-size:10px">▶</button>
+      </div>
+    </div>`;
   });
 
   html += '</div>';
   c.innerHTML = html;
   attachDrag();
+}
+
+function renderCompact(c, folders, scripts) {
+  let html = '<div class="compact-view">';
+
+  folders.forEach(f => {
+    const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
+    html += `<div class="compact-item compact-folder" data-id="${f.id}"
+      ondblclick="openFolder('${f.id}')"
+      onclick="selectItem(event,'f:${f.id}',this)"
+      oncontextmenu="showFolderCtx(event,'${f.id}')">
+      <span class="compact-icon">${f.icon}</span>
+      <span class="compact-dot" style="background:${f.color}"></span>
+      <span class="compact-name">${esc(f.name)}</span>
+      <span class="compact-meta">${cnt} скр.</span>
+    </div>`;
+  });
+
+  const pinned = scripts.filter(s => s.pinned);
+  const rest   = scripts.filter(s => !s.pinned);
+  [...pinned, ...rest].forEach(s => {
+    const lines = (s.code || '').split('\n').length;
+    const tags  = (s.tags || []).slice(0, 2).map(t => `<span class="si-tag">${esc(t)}</span>`).join('');
+    html += `<div class="compact-item${s.pinned ? ' has-pin' : ''}" data-id="${s.id}"
+      style="--si-color:${s.color || 'var(--accent)'}"
+      ondblclick="openEditor('${s.id}')"
+      onclick="selectItem(event,'s:${s.id}',this)"
+      oncontextmenu="showScriptCtx(event,'${s.id}')">
+      <span class="compact-icon">${s.icon || '🐍'}</span>
+      <span class="compact-name">${esc(s.name)}</span>
+      ${s.pinned ? '<span class="compact-pin">📌</span>' : ''}
+      <span class="compact-meta">${lines} строк</span>
+      ${tags ? `<span class="compact-tags">${tags}</span>` : ''}
+    </div>`;
+  });
+
+  html += '</div>';
+  c.innerHTML = html;
 }
 
 function scriptIconHtml(s) {
@@ -722,14 +1074,15 @@ function scriptIconHtml(s) {
 function renderList(c, folders, scripts) {
   let html = '<div class="list-view">';
   folders.forEach(f => {
-    const cnt = state.scripts.filter(s => s.folder_id === f.id).length;
+    const cnt = state.scripts.filter(s => s.folder_id === f.id && !trashedScriptIds.has(s.id)).length;
+    const subCnt = state.folders.filter(sf => sf.parent_id === f.id && !trashedFolderIds.has(sf.id)).length;
     html += `<div class="list-item folder-row" ondblclick="openFolder('${f.id}')"
       oncontextmenu="showFolderCtx(event,'${f.id}')">
       <div class="li-icon">${f.icon}</div>
       <div style="width:10px;height:10px;border-radius:50%;background:${f.color};flex-shrink:0"></div>
       <div class="li-info">
         <div class="li-name">${esc(f.name)}</div>
-        <div class="li-meta">${cnt} скриптов</div>
+        <div class="li-meta">${cnt} скриптов${subCnt ? ' · '+subCnt+' подпапок' : ''}</div>
       </div>
     </div>`;
   });
@@ -1700,20 +2053,40 @@ async function createScript() {
 }
 
 // ── Create folder ────────────────────────────────────────────────
-function openNewFolder() {
+function openNewFolder(parentOverride) {
   buildIconPicker('nf-icon-row', FOLDER_ICONS, FOLDER_ICONS[0]);
   buildColorPicker('nf-color-row', COLORS, COLORS[1]);
   document.getElementById('nf-name').value = '';
+
+  // Populate parent folder selector
+  const sel = document.getElementById('nf-parent-folder');
+  if (sel) {
+    sel.innerHTML = '<option value="">— Корневой уровень —</option>' +
+      state.folders
+        .filter(f => !trashedFolderIds.has(f.id))
+        .map(f => {
+          const path = getFolderPath(f.id).map(x => x.name).join(' / ');
+          return `<option value="${f.id}">${f.icon} ${path}</option>`;
+        }).join('');
+    const preselect = parentOverride !== undefined ? parentOverride : (currentFolder || '');
+    if (preselect) sel.value = preselect;
+  }
+
   openModal('modal-new-folder');
   setTimeout(() => document.getElementById('nf-name').focus(), 120);
 }
 
 async function createFolder() {
-  const name  = document.getElementById('nf-name').value.trim() || 'Новая папка';
-  const icon  = document.querySelector('#nf-icon-row .sel')?.textContent || '📁';
-  const color = document.querySelector('#nf-color-row .sel')?.style.background || COLORS[1];
-  const f = await api('/api/folder', 'POST', { name, icon, color });
+  const name      = document.getElementById('nf-name').value.trim() || 'Новая папка';
+  const icon      = document.querySelector('#nf-icon-row .sel')?.textContent || '📁';
+  const color     = document.querySelector('#nf-color-row .sel')?.style.background || COLORS[1];
+  const parentSel = document.getElementById('nf-parent-folder');
+  const parent_id = parentSel ? (parentSel.value || null) : null;
+
+  const f = await api('/api/folder', 'POST', { name, icon, color, parent_id });
+  if (f.error) { toast('Ошибка: ' + f.error, 'err'); return; }
   state.folders.push(f);
+  if (f.parent_id) openTreeNodes.add(f.parent_id); // auto-expand parent
   closeModal('modal-new-folder');
   render();
   toast(`✓ Папка «${name}» создана`);
@@ -1815,6 +2188,11 @@ function folderCtxOpen() {
   if (ctxFolderId) openFolder(ctxFolderId);
 }
 
+function folderCtxNewSub() {
+  hideCtx();
+  openNewFolder(ctxFolderId);
+}
+
 function openRenameFolderModal() {
   hideCtx();
   const f = state.folders.find(x => x.id === ctxFolderId);
@@ -1848,24 +2226,12 @@ async function folderCtxDelete() {
   hideCtx();
   const id = ctxFolderId;
   const f = state.folders.find(x => x.id === id);
-  const ok = await showConfirm({
-    title: 'Удалить папку?',
-    message: `Папка «${f ? f.name : ''}» будет удалена. Скрипты останутся в корне.`,
-    okText: 'Удалить',
-    danger: true,
-  });
-  if (!ok) return;
-  await api('/api/folder/' + id, 'DELETE');
-  state.folders = state.folders.filter(x => x.id !== id);
-  state.scripts.forEach(s => { if (s.folder_id === id) s.folder_id = null; });
-  if (currentFolder === id) goRoot();
-  render();
-  touchProject();
-  toast('Папка удалена');
+  if (!f) return;
+  trashFolder(id);
 }
 
 function canvasCtxNewScript() { hideCtx(); openNewScript(); }
-function canvasCtxNewFolder()  { hideCtx(); openNewFolder(); }
+function canvasCtxNewFolder()  { hideCtx(); openNewFolder(currentFolder); }
 function canvasCtxOpenProject() { hideCtx(); openProjectsModal(); }
 function canvasCtxSaveProject() { hideCtx(); exportProject(); }
 function canvasCtxGoRoot()     { hideCtx(); goRoot(); }
@@ -1899,20 +2265,7 @@ async function ctxDup() {
 function ctxCompile()   { hideCtx(); openEditor(ctxTargetId); compileScript(); }
 async function ctxDelete() {
   hideCtx();
-  const s = state.scripts.find(x => x.id === ctxTargetId);
-  const ok = await showConfirm({
-    title: 'Удалить скрипт?',
-    message: s ? `Скрипт «${s.name}» будет удалён безвозвратно.` : 'Скрипт будет удалён.',
-    okText: 'Удалить',
-    danger: true,
-  });
-  if (!ok) return;
-  await api('/api/script/' + ctxTargetId, 'DELETE');
-  state.scripts = state.scripts.filter(x => x.id !== ctxTargetId);
-  if (currentScriptId === ctxTargetId) closeEditor();
-  render();
-  touchProject();
-  toast('Удалено', 'err');
+  trashScript(ctxTargetId);
 }
 
 // ── Project Save / Load ──────────────────────────────────────────
@@ -2037,7 +2390,11 @@ async function exportProject() {
 function setView(v, btn) {
   currentView = v;
   document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  else {
+    const b = document.getElementById('vbtn-' + v);
+    if (b) b.classList.add('active');
+  }
   renderCanvas();
 }
 
@@ -2051,9 +2408,11 @@ function cycleSortMode() {
 
 // ── Stats ────────────────────────────────────────────────────────
 function updateStats() {
-  document.getElementById('stat-scripts').textContent = state.scripts.length;
-  document.getElementById('stat-folders').textContent = state.folders.length;
-  const lines = state.scripts.reduce((a, s) => a + (s.code||'').split('\n').length, 0);
+  const visScripts = state.scripts.filter(s => !trashedScriptIds.has(s.id));
+  const visFolders = state.folders.filter(f => !trashedFolderIds.has(f.id));
+  document.getElementById('stat-scripts').textContent = visScripts.length;
+  document.getElementById('stat-folders').textContent = visFolders.length;
+  const lines = visScripts.reduce((a, s) => a + (s.code||'').split('\n').length, 0);
   document.getElementById('stat-lines').textContent = lines > 999 ? (lines/1000).toFixed(1)+'k' : lines;
   document.getElementById('stat-run').textContent = document.querySelectorAll('.si-run-dot').length;
 }
@@ -2181,6 +2540,46 @@ function relTime(iso) {
   if (diff < 3600000) return Math.floor(diff / 60000) + ' мин. назад';
   if (diff < 86400000) return Math.floor(diff / 3600000) + ' ч. назад';
   return new Date(iso).toLocaleDateString('ru');
+}
+
+// ── Sidebar resize ───────────────────────────────────────────────
+function initSidebarResize() {
+  const handle  = document.getElementById('sidebar-resize');
+  const sidebar = document.getElementById('sidebar');
+  if (!handle || !sidebar) return;
+
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  handle.addEventListener('mousedown', e => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    document.body.classList.add('resizing-sidebar');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!isResizing) return;
+    const w = Math.max(160, Math.min(420, startWidth + (e.clientX - startX)));
+    sidebar.style.width = w + 'px';
+    sidebar.style.minWidth = w + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    isResizing = false;
+    document.body.classList.remove('resizing-sidebar');
+    localStorage.setItem('pyvault-sidebar-w', sidebar.offsetWidth);
+  });
+
+  // Restore saved width
+  const saved = parseInt(localStorage.getItem('pyvault-sidebar-w') || '0');
+  if (saved >= 160 && saved <= 420) {
+    sidebar.style.width = saved + 'px';
+    sidebar.style.minWidth = saved + 'px';
+  }
 }
 
 // ── Boot ─────────────────────────────────────────────────────────
