@@ -126,6 +126,211 @@ function isProjectFileLinked() {
 const HANDLE_DB = 'pyvault-fs';
 const HANDLE_STORE = 'handles';
 const HANDLE_KEY = 'project-file';
+const RECENT_LIST_KEY = 'pyvault-recent';
+const RECENT_MAX = 15;
+
+function recentHandleKey(id) {
+  return 'recent-' + id;
+}
+
+function loadRecentMeta() {
+  try {
+    const raw = localStorage.getItem(RECENT_LIST_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveRecentMeta(list) {
+  localStorage.setItem(RECENT_LIST_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+}
+
+async function recentEntryId(handle, file) {
+  const f = file || await handle.getFile();
+  const base = `${handle.name}|${f.lastModified}|${f.size}`;
+  return base.replace(/[^a-zA-Z0-9|._-]/g, '_');
+}
+
+async function persistRecentHandle(id, handle) {
+  if (!handle || !window.indexedDB) return;
+  const db = await openHandleDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE, 'readwrite');
+    tx.objectStore(HANDLE_STORE).put(handle, recentHandleKey(id));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getStoredRecentHandle(id) {
+  if (!window.indexedDB) return null;
+  try {
+    const db = await openHandleDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_STORE, 'readonly');
+      const req = tx.objectStore(HANDLE_STORE).get(recentHandleKey(id));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+async function deleteStoredRecentHandle(id) {
+  if (!window.indexedDB) return;
+  try {
+    const db = await openHandleDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_STORE, 'readwrite');
+      tx.objectStore(HANDLE_STORE).delete(recentHandleKey(id));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (_) { /* ignore */ }
+}
+
+async function addToRecentProjects(handle, projectName) {
+  if (!handle) return;
+  const file = await handle.getFile();
+  const id = await recentEntryId(handle, file);
+  const entry = {
+    id,
+    fileName: handle.name,
+    projectName: projectName || handle.name.replace(/\.(pyvault|json)$/i, ''),
+    openedAt: new Date().toISOString(),
+    hasHandle: true,
+  };
+  const list = loadRecentMeta().filter(x => x.id !== id);
+  list.unshift(entry);
+  saveRecentMeta(list);
+  await persistRecentHandle(id, handle);
+}
+
+function addToRecentProjectsMeta(file, projectName) {
+  const id = `inp-${file.name}-${file.lastModified}-${file.size}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const entry = {
+    id,
+    fileName: file.name,
+    projectName: projectName || file.name,
+    openedAt: new Date().toISOString(),
+    hasHandle: false,
+  };
+  const list = loadRecentMeta().filter(x => x.id !== id);
+  list.unshift(entry);
+  saveRecentMeta(list);
+}
+
+async function removeFromRecent(id) {
+  saveRecentMeta(loadRecentMeta().filter(x => x.id !== id));
+  await deleteStoredRecentHandle(id);
+  renderRecentProjectsModal();
+  toast('Удалено из списка');
+}
+
+function renderRecentProjectsModal() {
+  const el = document.getElementById('recent-list');
+  if (!el) return;
+  const list = loadRecentMeta();
+  if (!list.length) {
+    el.innerHTML = '<div class="recent-empty">Нет недавних проектов.<br>Используйте «Новый проект» или «Открыть файл».</div>';
+    return;
+  }
+  el.innerHTML = list.map(item => `
+    <div class="recent-item" data-id="${esc(item.id)}">
+      <div class="recent-main">
+        <div class="recent-title">${esc(item.projectName)}</div>
+        <div class="recent-meta">📎 ${esc(item.fileName)} · ${relTime(item.openedAt)}${item.hasHandle ? '' : ' · повторный выбор'}</div>
+      </div>
+      <button type="button" class="recent-remove" data-id="${esc(item.id)}" title="Убрать из списка">×</button>
+    </div>
+  `).join('');
+}
+
+function openProjectsModal() {
+  renderRecentProjectsModal();
+  openModal('modal-recent');
+}
+
+async function confirmDiscardUnsaved() {
+  if (!hasUnsavedChanges) return true;
+  return showConfirm({
+    title: 'Несохранённые изменения',
+    message: 'Текущий проект не сохранён в файл. Открыть другой проект без сохранения?',
+    okText: 'Открыть',
+    danger: true,
+  });
+}
+
+async function openRecentProject(id) {
+  if (!(await confirmDiscardUnsaved())) return;
+  const meta = loadRecentMeta().find(x => x.id === id);
+  if (!meta) return;
+
+  if (!meta.hasHandle) {
+    closeModal('modal-recent');
+    toast('Выберите тот же файл: ' + meta.fileName, 'info');
+    document.getElementById('import-input').click();
+    return;
+  }
+
+  const handle = await getStoredRecentHandle(id);
+  if (!handle || typeof handle.queryPermission !== 'function') {
+    toast('Файл недоступен — уберите из списка и откройте снова', 'err');
+    return;
+  }
+  let perm = await handle.queryPermission({ mode: 'readwrite' });
+  if (perm === 'prompt') perm = await handle.requestPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') {
+    toast('Нет доступа к файлу', 'err');
+    return;
+  }
+  closeModal('modal-recent');
+  await importProjectFromHandle(handle);
+}
+
+async function createNewProject() {
+  if (!(await confirmDiscardUnsaved())) return;
+  const res = await api('/api/project/new', 'POST', { project_name: 'Мой Проект' });
+  if (res.error) {
+    toast('Ошибка: ' + res.error, 'err');
+    return;
+  }
+  _projectFileHandle = null;
+  await clearPersistedProjectFileHandle();
+  projectFileLabel = null;
+  state = res.state || await api('/api/state');
+  document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
+  closeEditor();
+  goRoot();
+  closeModal('modal-recent');
+  render();
+  updateProjectFileLabel();
+  setProjectBaseline(null);
+  toast('✓ Создан новый проект');
+}
+
+async function browseProjectFile() {
+  if (!(await confirmDiscardUnsaved())) return;
+  closeModal('modal-recent');
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{
+          description: 'PyVault Project',
+          accept: { 'application/json': ['.pyvault', '.json'] },
+        }],
+        multiple: false,
+      });
+      await importProjectFromHandle(handle);
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  document.getElementById('import-input').click();
+}
 
 function openHandleDb() {
   return new Promise((resolve, reject) => {
@@ -241,6 +446,20 @@ async function init() {
   document.addEventListener('click', hideCtx);
   document.addEventListener('keydown', onGlobalKey);
 
+  const recentList = document.getElementById('recent-list');
+  if (recentList) {
+    recentList.addEventListener('click', e => {
+      const rm = e.target.closest('.recent-remove');
+      if (rm && rm.dataset.id) {
+        e.stopPropagation();
+        removeFromRecent(rm.dataset.id);
+        return;
+      }
+      const item = e.target.closest('.recent-item');
+      if (item && item.dataset.id) openRecentProject(item.dataset.id);
+    });
+  }
+
   window.addEventListener('beforeunload', e => {
     checkProjectDirty();
     if (hasUnsavedChanges) {
@@ -255,6 +474,7 @@ async function init() {
     _projectFileHandle = restoredHandle;
     projectFileLabel = restoredHandle.name;
     updateProjectFileLabel();
+    await addToRecentProjects(restoredHandle, state.project_name);
   }
 
   setProjectBaseline(null);
@@ -1439,25 +1659,6 @@ async function ctxDelete() {
 }
 
 // ── Project Save / Load ──────────────────────────────────────────
-async function openProjectFile() {
-  if (window.showOpenFilePicker) {
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{
-          description: 'PyVault Project',
-          accept: { 'application/json': ['.pyvault', '.json'] },
-        }],
-        multiple: false,
-      });
-      await importProjectFromHandle(handle);
-      return;
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-    }
-  }
-  document.getElementById('import-input').click();
-}
-
 async function importProjectFromHandle(handle) {
   const file = await handle.getFile();
   const form = new FormData();
@@ -1471,6 +1672,7 @@ async function importProjectFromHandle(handle) {
   _projectFileHandle = handle;
   projectFileLabel = handle.name;
   await persistProjectFileHandle(handle);
+  await addToRecentProjects(handle, data.name);
   state = await api('/api/state');
   document.getElementById('proj-name').value = state.project_name;
   closeEditor();
@@ -1483,6 +1685,10 @@ async function importProjectFromHandle(handle) {
 async function importProject(e) {
   const file = e.target.files[0];
   if (!file) return;
+  if (!(await confirmDiscardUnsaved())) {
+    e.target.value = '';
+    return;
+  }
   const form = new FormData();
   form.append('file', file);
   const r = await fetch('/api/project/import', { method: 'POST', body: form });
@@ -1491,6 +1697,7 @@ async function importProject(e) {
     _projectFileHandle = null;
     await clearPersistedProjectFileHandle();
     projectFileLabel = file.name;
+    addToRecentProjectsMeta(file, data.name);
     state = await api('/api/state');
     document.getElementById('proj-name').value = state.project_name;
     closeEditor();
@@ -1520,6 +1727,7 @@ async function exportProject() {
       const ok = await writeBlobToProjectFile(blob);
       if (ok) {
         projectFileLabel = _projectFileHandle.name || projectFileLabel;
+        await addToRecentProjects(_projectFileHandle, state.project_name);
         updateProjectFileLabel();
         toast('💾 Сохранено в ' + (_projectFileHandle.name || 'файл'));
         setProjectBaseline(projectFileLabel || _projectFileHandle.name);
@@ -1543,6 +1751,7 @@ async function exportProject() {
         }
         projectFileLabel = _projectFileHandle.name;
         await persistProjectFileHandle(_projectFileHandle);
+        await addToRecentProjects(_projectFileHandle, state.project_name);
         updateProjectFileLabel();
         toast('💾 Проект сохранён');
         setProjectBaseline(_projectFileHandle.name);

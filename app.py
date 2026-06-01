@@ -18,12 +18,15 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 app = Flask(__name__, static_folder=str(STATIC_DIR), template_folder=str(TEMPLATES_DIR))
 
 # ── Состояние приложения ──────────────────────────────────────────────────────
-vault_state = {
-    "project_name": "Мой Проект",
-    "folders": [],
-    "scripts": [],
-    "settings": {"theme": "dark", "accent": "#00ff88", "font_size": 14}
-}
+def default_vault_state(project_name: str = "Мой Проект") -> dict:
+    return {
+        "project_name": project_name,
+        "folders": [],
+        "scripts": [],
+        "settings": {"theme": "dark", "accent": "#00ff88", "font_size": 14},
+    }
+
+vault_state = default_vault_state()
 
 run_processes = {}   # sid → Popen
 run_logs = {}        # sid → [str]
@@ -273,6 +276,22 @@ def api_export():
     return send_file(buf, mimetype="application/json",
                      as_attachment=True, download_name=f"{name}.pyvault")
 
+@app.route("/api/project/new", methods=["POST"])
+def api_project_new():
+    global vault_state
+    d = request.json or {}
+    name = (d.get("project_name") or "Мой Проект").strip() or "Мой Проект"
+    for sid in list(run_processes.keys()):
+        proc = run_processes.pop(sid, None)
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    run_logs.clear()
+    vault_state = default_vault_state(name)
+    return jsonify({"ok": True, "name": name, "state": vault_state})
+
 @app.route("/api/project/import", methods=["POST"])
 def api_import():
     global vault_state
@@ -280,6 +299,8 @@ def api_import():
         return jsonify({"error": "Нет файла"}), 400
     try:
         data = json.loads(request.files["file"].read().decode("utf-8"))
+        vault_state.clear()
+        vault_state.update(default_vault_state())
         vault_state.update(data)
         return jsonify({"ok": True, "name": vault_state.get("project_name")})
     except Exception as e:

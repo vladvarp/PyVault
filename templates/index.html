@@ -20,7 +20,7 @@
   <span id="unsaved-dot" class="unsaved-dot hidden" title="Есть несохранённые изменения">●</span>
 
   <div class="tb-actions">
-    <button type="button" class="tb-btn" onclick="openProjectFile()" title="Открыть .pyvault файл">📂 Открыть</button>
+    <button type="button" class="tb-btn" onclick="openProjectsModal()" title="Недавние и открытие проекта">📂 Открыть</button>
     <input type="file" id="import-input" accept=".pyvault,.json" style="display:none">
 
     <button class="tb-btn primary" id="save-btn" onclick="exportProject()">
@@ -30,7 +30,7 @@
     <div class="tb-sep"></div>
 
     <button class="tb-btn primary" onclick="openNewScript()">
-      ＋ Скрипт <span class="kbd">Ctrl+N</span>
+      ＋ Скрипт
     </button>
 
     <button class="tb-btn" onclick="openNewFolder()">
@@ -289,6 +289,26 @@
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal('modal-new-folder')">Отмена</button>
       <button class="btn-ok" onclick="createFolder()">Создать ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recent projects -->
+<div class="modal-back" id="modal-recent">
+  <div class="modal" style="width:min(480px,94vw)">
+    <h2>📂 Проекты</h2>
+    <p style="font-size:11px;color:var(--text3);margin:4px 0 12px">Недавно открытые — выберите из списка или создайте новый проект</p>
+    <button type="button" class="recent-new-btn" onclick="createNewProject()">
+      <span class="recent-new-icon">＋</span>
+      <span>
+        <span class="recent-new-title">Новый проект</span>
+        <span class="recent-new-sub">Пустой проект без скриптов и папок</span>
+      </span>
+    </button>
+    <div id="recent-list" class="recent-list" style="margin-top:10px"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button type="button" class="btn-cancel" onclick="closeModal('modal-recent')">Закрыть</button>
+      <button type="button" class="btn-ok" onclick="browseProjectFile()">📁 Открыть файл…</button>
     </div>
   </div>
 </div>

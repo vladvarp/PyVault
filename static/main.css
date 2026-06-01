@@ -788,6 +788,107 @@
      align-items: center;
    }
    .dir-manual-row .form-input { flex: 1; min-width: 0; }
+
+   /* Recent projects */
+   .recent-new-btn {
+     width: 100%;
+     display: flex;
+     align-items: center;
+     gap: 12px;
+     padding: 12px 14px;
+     background: rgba(0, 255, 136, 0.06);
+     border: 1px dashed rgba(0, 255, 136, 0.35);
+     border-radius: 8px;
+     cursor: pointer;
+     text-align: left;
+     transition: background .15s, border-color .15s;
+   }
+   .recent-new-btn:hover {
+     background: rgba(0, 255, 136, 0.12);
+     border-color: var(--accent);
+   }
+   .recent-new-icon {
+     width: 36px;
+     height: 36px;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     font-size: 20px;
+     font-weight: 700;
+     color: var(--accent);
+     background: rgba(0, 255, 136, 0.1);
+     border-radius: 8px;
+     flex-shrink: 0;
+   }
+   .recent-new-title {
+     display: block;
+     font-size: 13px;
+     font-weight: 700;
+     color: var(--text);
+   }
+   .recent-new-sub {
+     display: block;
+     font-size: 10px;
+     color: var(--text3);
+     margin-top: 2px;
+   }
+
+   .recent-list {
+     max-height: 320px;
+     overflow-y: auto;
+     background: var(--bg);
+     border: 1px solid var(--border2);
+     border-radius: 8px;
+   }
+   .recent-list::-webkit-scrollbar { width: 4px; }
+   .recent-list::-webkit-scrollbar-thumb { background: var(--border2); }
+   .recent-empty {
+     padding: 28px 16px;
+     text-align: center;
+     font-size: 12px;
+     color: var(--text3);
+   }
+   .recent-item {
+     display: flex;
+     align-items: stretch;
+     border-bottom: 1px solid var(--border);
+     transition: background .12s;
+   }
+   .recent-item:last-child { border-bottom: none; }
+   .recent-item:hover { background: var(--bg3); }
+   .recent-main {
+     flex: 1;
+     min-width: 0;
+     padding: 10px 12px;
+     cursor: pointer;
+   }
+   .recent-title {
+     font-size: 13px;
+     font-weight: 600;
+     color: var(--text);
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+   }
+   .recent-meta {
+     font-size: 10px;
+     color: var(--text3);
+     margin-top: 3px;
+     white-space: nowrap;
+     overflow: hidden;
+     text-overflow: ellipsis;
+   }
+   .recent-remove {
+     flex-shrink: 0;
+     width: 36px;
+     border: none;
+     background: transparent;
+     color: var(--text3);
+     font-size: 18px;
+     cursor: pointer;
+     transition: color .12s, background .12s;
+   }
+   .recent-remove:hover { color: var(--accent3); background: rgba(255,0,77,.08); }
    
    .run-btn {
      padding: 6px 14px;
