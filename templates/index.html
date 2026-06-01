@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyVault</title>
+<link rel="stylesheet" href="/static/main.css">
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║           TITLE BAR                  ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="titlebar">
+  <span class="logo">⬡ PyVault</span>
+  <span class="logo-ver">v2</span>
+  <div class="tb-sep"></div>
+  <input id="proj-name" value="Мой Проект" spellcheck="false" title="Название проекта">
+
+  <div class="tb-actions">
+    <label class="tb-btn" title="Открыть .pyvault файл">
+      📂 Открыть
+      <input type="file" id="import-input" accept=".pyvault,.json" style="display:none">
+    </label>
+
+    <button class="tb-btn primary" onclick="exportProject()">
+      💾 Сохранить <span class="kbd">Ctrl+S</span>
+    </button>
+
+    <div class="tb-sep"></div>
+
+    <button class="tb-btn primary" onclick="openNewScript()">
+      ＋ Скрипт <span class="kbd">Ctrl+N</span>
+    </button>
+
+    <button class="tb-btn" onclick="openNewFolder()">
+      📁 Папка
+    </button>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║           MAIN LAYOUT               ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="layout">
+
+  <!-- ── SIDEBAR ─────────────────────────────── -->
+  <div id="sidebar">
+    <div id="sidebar-scroll">
+
+      <div class="sb-section">Навигация</div>
+
+      <div class="nav-item active" data-filter="all" onclick="setFilter('all',this)">
+        <span>🏠</span> Все файлы
+        <span class="nav-count" id="cnt-all">0</span>
+      </div>
+      <div class="nav-item" data-filter="pinned" onclick="setFilter('pinned',this)">
+        <span>📌</span> Закреплённые
+        <span class="nav-count" id="cnt-pin">0</span>
+      </div>
+      <div class="nav-item" data-filter="none" onclick="setFilter('none',this)">
+        <span>📄</span> Без папки
+        <span class="nav-count" id="cnt-none">0</span>
+      </div>
+
+      <div class="sb-section" style="margin-top:6px">
+        Папки
+        <button class="sb-add" onclick="openNewFolder()" title="Создать папку">＋</button>
+      </div>
+
+      <div id="folders-nav"></div>
+
+    </div>
+
+    <!-- Sidebar Stats -->
+    <div id="sb-bottom">
+      <div class="stats-grid">
+        <div class="stat-cell">
+          <div class="stat-val" id="stat-scripts">0</div>
+          <div class="stat-lbl">скриптов</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-val" id="stat-folders">0</div>
+          <div class="stat-lbl">папок</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-val" id="stat-lines">0</div>
+          <div class="stat-lbl">строк</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-val" id="stat-run">0</div>
+          <div class="stat-lbl">запущено</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CANVAS AREA ───────────────────────────── -->
+  <div id="canvas-wrap">
+
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <div class="search-wrap">
+        <input type="text" id="search-box" placeholder="Поиск..." oninput="renderCanvas()">
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn active" onclick="setView('grid',this)" title="Сетка (иконки)">▦</button>
+        <button class="view-btn" onclick="setView('list',this)" title="Список">☰</button>
+      </div>
+      <button class="sort-btn" id="sort-btn" onclick="cycleSortMode()">⇅ Дата</button>
+    </div>
+
+    <!-- Breadcrumb -->
+    <div id="breadcrumb"></div>
+
+    <!-- Icon canvas -->
+    <div id="canvas"></div>
+
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║            EDITOR OVERLAY (full-screen modal)            ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<div id="editor-overlay" class="hidden" onclick="if(event.target===this)closeEditor()">
+  <div id="editor-window">
+
+    <!-- Window chrome -->
+    <div class="win-titlebar">
+      <div class="win-dots">
+        <div class="win-dot close"  onclick="closeEditor()" title="Закрыть Esc"></div>
+        <div class="win-dot mini"   title="—"></div>
+        <div class="win-dot expand" onclick="compileScript()" title="Компилировать в EXE"></div>
+      </div>
+      <div class="win-script-name" id="win-title">Скрипт</div>
+
+      <!-- Quick actions -->
+      <button class="tb-btn" onclick="compileScript()" style="padding:3px 9px;font-size:10px">⚙ EXE</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="win-tabs">
+      <div class="win-tab active" data-tab="editor"   onclick="switchWinTab('editor',this)">✏️ Редактор</div>
+      <div class="win-tab"        data-tab="terminal"  onclick="switchWinTab('terminal',this)">▶ Консоль</div>
+      <div class="win-tab"        data-tab="deps"      onclick="switchWinTab('deps',this)">📦 Зависимости</div>
+      <div class="win-tab"        data-tab="info"      onclick="switchWinTab('info',this)">ℹ Свойства</div>
+    </div>
+
+    <!-- Tab panes -->
+    <div class="win-body">
+
+      <!-- EDITOR TAB -->
+      <div class="tab-pane active" id="pane-editor">
+        <div id="editor-pane">
+          <div id="editor-inner">
+            <!-- Line numbers -->
+            <div id="line-numbers"></div>
+            <!-- Code editor -->
+            <textarea id="code-editor"
+              spellcheck="false"
+              autocomplete="off"
+              oninput="onCodeChange()"
+              onkeydown="handleEditorKey(event)"
+              onscroll="syncLineScroll()"
+              onclick="updateStatusBar()"
+              onkeyup="updateStatusBar()"
+            ></textarea>
+          </div>
+          <!-- Status bar -->
+          <div class="editor-status">
+            <span id="st-cursor">Стр 1, Кол 1</span>
+            <div class="status-sep"></div>
+            <span id="st-lines">0 строк</span>
+            <span id="st-chars">0 символов</span>
+            <div class="status-sep"></div>
+            <span>Python</span>
+            <div class="status-sep"></div>
+            <span>UTF-8</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TERMINAL TAB -->
+      <div class="tab-pane" id="pane-terminal">
+        <div id="terminal-pane">
+          <div id="terminal-out">
+            <div class="tl sys">// Консоль вывода</div>
+          </div>
+          <div id="terminal-bar">
+            <button class="run-dir-btn" onclick="openDirPicker()" title="Выбрать рабочую директорию">
+              📂 <span id="run-dir-label">~</span>
+            </button>
+            <button class="run-btn" id="run-btn" onclick="runScript()">
+              ▶ Запустить
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DEPS TAB -->
+      <div class="tab-pane" id="pane-deps">
+        <div id="deps-pane" class="tab-pane active" style="overflow-y:auto;padding:16px;display:block">
+          <div style="color:var(--text3);text-align:center;margin-top:30px;font-size:12px">
+            Откройте скрипт чтобы увидеть зависимости
+          </div>
+        </div>
+      </div>
+
+      <!-- INFO TAB -->
+      <div class="tab-pane" id="pane-info">
+        <div id="info-pane" style="overflow-y:auto;padding:16px;flex:1"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║           MODALS                    ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+
+<!-- New Script -->
+<div class="modal-back" id="modal-new-script">
+  <div class="modal">
+    <h2>Новый скрипт</h2>
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input class="form-input" id="ns-name" placeholder="my_script" spellcheck="false">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Описание</label>
+      <input class="form-input" id="ns-desc" placeholder="Что делает этот скрипт?">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Папка</label>
+      <select class="form-input" id="ns-folder"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Иконка</label>
+      <div class="icon-row" id="ns-icon-row"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Цвет</label>
+      <div class="color-row" id="ns-color-row"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Теги (через запятую)</label>
+      <input class="form-input" id="ns-tags" placeholder="утилита, данные, ...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('modal-new-script')">Отмена</button>
+      <button class="btn-ok" onclick="createScript()">Создать ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Folder -->
+<div class="modal-back" id="modal-new-folder">
+  <div class="modal">
+    <h2>Новая папка</h2>
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input class="form-input" id="nf-name" placeholder="Мои утилиты">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Иконка</label>
+      <div class="icon-row" id="nf-icon-row"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Цвет папки</label>
+      <div class="color-row" id="nf-color-row"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('modal-new-folder')">Отмена</button>
+      <button class="btn-ok" onclick="createFolder()">Создать ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dir Picker -->
+<div class="modal-back" id="modal-dir">
+  <div class="modal" style="width:min(520px,92vw)">
+    <h2>📂 Рабочая директория</h2>
+    <div class="dir-current" id="dir-current">/</div>
+    <div class="dir-list" id="dir-list"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-cancel" onclick="closeModal('modal-dir')">Отмена</button>
+      <button class="btn-ok" onclick="selectDir()">✓ Выбрать эту папку</button>
+    </div>
+  </div>
+</div>
+
+<!-- Move Script -->
+<div class="modal-back" id="modal-move">
+  <div class="modal">
+    <h2>↗ Переместить скрипт</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Выберите папку назначения:</p>
+    <div id="move-folder-list"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-cancel" onclick="closeModal('modal-move')">Отмена</button>
+      <button class="btn-ok" onclick="confirmMove()">✓ Переместить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compile -->
+<div class="modal-back" id="modal-compile">
+  <div class="modal">
+    <h2>⚙ Компиляция в EXE</h2>
+    <div id="compile-status" style="color:var(--text2);font-size:12px;margin-bottom:8px">Подготовка...</div>
+    <div class="compile-log" id="compile-log"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-ok" id="compile-close-btn" onclick="closeModal('modal-compile')" disabled>Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║         CONTEXT MENU                ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="ctx-menu">
+  <div class="ctx-item" onclick="ctxEdit()">✏️ Открыть редактор</div>
+  <div class="ctx-item" onclick="ctxRun()">▶ Запустить</div>
+  <div class="ctx-item" onclick="ctxAnalyze()">📦 Зависимости</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxMove()">↗ Переместить в папку</div>
+  <div class="ctx-item" onclick="ctxPin()">📌 Закрепить / открепить</div>
+  <div class="ctx-item" onclick="ctxDup()">⎘ Дублировать</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxCompile()">⚙ Компилировать в EXE</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" onclick="ctxDelete()">🗑 Удалить</div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║           TOASTS                    ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
