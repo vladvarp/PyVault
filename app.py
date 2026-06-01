@@ -269,7 +269,7 @@ def api_export():
     buf = io.BytesIO()
     buf.write(json.dumps(vault_state, ensure_ascii=False, indent=2).encode("utf-8"))
     buf.seek(0)
-    name = vault_state.get("project_name", "project").replace(" ", "_")
+    name = re.sub(r'[^\w\-]', '_', vault_state.get("project_name", "project"))
     return send_file(buf, mimetype="application/json",
                      as_attachment=True, download_name=f"{name}.pyvault")
 
@@ -350,7 +350,8 @@ def api_compile(sid):
                 if not exe.exists():
                     exe = tmp_dir / "dist" / (safe_name + ".exe")
                 if exe.exists():
-                    return send_file(str(exe), as_attachment=True, download_name=exe.name)
+                    ascii_name = re.sub(r'[^\w\-.]', '_', exe.name)
+                    return send_file(str(exe), as_attachment=True, download_name=ascii_name)
             else:
                 # onedir — zip the folder
                 import zipfile
@@ -362,7 +363,8 @@ def api_compile(sid):
                     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                         for f_path in dist_dir.rglob("*"):
                             zf.write(f_path, f_path.relative_to(dist_dir.parent))
-                    return send_file(str(zip_path), as_attachment=True, download_name=zip_path.name)
+                    ascii_zip = re.sub(r'[^\w\-.]', '_', zip_path.name)
+                    return send_file(str(zip_path), as_attachment=True, download_name=ascii_zip)
 
             return jsonify({"error": "Не удалось скомпилировать",
                             "output": (r.stdout + r.stderr)[-4000:]}), 500

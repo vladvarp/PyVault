@@ -542,11 +542,29 @@ async function loadDir(path) {
   dirPickerPath = data.path;
   document.getElementById('dir-current').textContent = data.path;
   const list = document.getElementById('dir-list');
-  list.innerHTML = `<div class="dir-item" onclick="loadDir(${JSON.stringify(data.parent)})">⬆ ..</div>` +
+  // Use data-path attributes to avoid JSON/quote escaping issues in onclick
+  list.innerHTML =
+    `<div class="dir-item" data-path="${encodeURIComponent(data.parent)}">⬆ ..</div>` +
     data.items.filter(i => i.is_dir).map(i =>
-      `<div class="dir-item" onclick="loadDir(${JSON.stringify(i.path)})">📁 ${esc(i.name)}</div>`
+      `<div class="dir-item" data-path="${encodeURIComponent(i.path)}">📁 ${esc(i.name)}</div>`
     ).join('');
 }
+
+// Event delegation for dir-list — safe click handler without inline onclick
+document.addEventListener('click', e => {
+  const item = e.target.closest('#dir-list .dir-item');
+  if (item && item.dataset.path) {
+    loadDir(decodeURIComponent(item.dataset.path));
+  }
+  // Event delegation for install-all button
+  const installAll = e.target.closest('.install-all-btn');
+  if (installAll && installAll.dataset.pkgs) {
+    try {
+      const pkgList = JSON.parse(decodeURIComponent(installAll.dataset.pkgs));
+      installAllMissing(pkgList);
+    } catch(err) { console.error('installAll parse error', err); }
+  }
+});
 
 async function selectDir() {
   if (!currentScriptId || !dirPickerPath) return;
@@ -605,7 +623,16 @@ async function startCompile() {
       const a = document.createElement('a');
       a.href = url;
       const disp = resp.headers.get('Content-Disposition') || '';
-      a.download = disp.match(/filename="?([^"]+)"?/)?.[1] || s.name;
+      // Handle RFC 5987 encoded filename: filename*=UTF-8''encoded.exe
+      let dlName = s.name;
+      const rfc5987 = disp.match(/filename\*=UTF-8''([^\s;]+)/i);
+      if (rfc5987) {
+        try { dlName = decodeURIComponent(rfc5987[1]); } catch(e) { dlName = s.name; }
+      } else {
+        const plain = disp.match(/filename="?([^";]+)"?/i);
+        if (plain && plain[1]) dlName = plain[1];
+      }
+      a.download = dlName;
       a.click();
       document.getElementById('compile-spinner').classList.add('hidden');
       document.getElementById('compile-status').textContent = '✓ Готово! Файл скачан.';
@@ -666,7 +693,7 @@ async function loadDeps(id) {
     const missing = data.third_party.filter(pkg => !data.dep_status[pkg]);
     html += `<div class="dep-group-title" style="display:flex;align-items:center;justify-content:space-between">
       <span>📦 Сторонние пакеты</span>
-      ${missing.length > 0 ? `<button class="install-all-btn" onclick="installAllMissing(${JSON.stringify(missing)})">⬇ Установить все (${missing.length})</button>` : ''}
+      ${missing.length > 0 ? `<button class="install-all-btn" id="install-all-btn-${id}" data-pkgs="${encodeURIComponent(JSON.stringify(missing))}">⬇ Установить все (${missing.length})</button>` : ''}
     </div>`;
     data.third_party.forEach(pkg => {
       const ok = data.dep_status[pkg];
@@ -934,10 +961,57 @@ async function ctxDelete() {
 }
 
 // ── Project Save / Load ──────────────────────────────────────────
-function exportProject() {
-  window.location.href = '/api/project/export';
-  toast('💾 Проект сохранён');
-  markSaved();
+let _projectFileHandle = null;  // File System Access API handle
+
+async function exportProject() {
+  try {
+    // Fetch project JSON from server
+    const resp = await fetch('/api/project/export');
+    const blob = await resp.blob();
+    const projName = (state.project_name || 'project').replace(/[^a-zA-Z0-9_а-яА-ЯёЁ\-]/g, '_');
+
+    // Try File System Access API first (Chrome/Edge) — allows true "Save" to same file
+    if (window.showSaveFilePicker) {
+      try {
+        // If we already have a handle (previously saved), use it directly — no dialog
+        if (_projectFileHandle) {
+          const writable = await _projectFileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast('💾 Проект сохранён');
+          markSaved();
+          return;
+        }
+        // First save — show dialog once, store handle
+        _projectFileHandle = await window.showSaveFilePicker({
+          suggestedName: projName + '.pyvault',
+          types: [{ description: 'PyVault Project', accept: { 'application/json': ['.pyvault'] } }]
+        });
+        const writable = await _projectFileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        toast('💾 Проект сохранён');
+        markSaved();
+        return;
+      } catch(e) {
+        if (e.name === 'AbortError') return; // user cancelled dialog
+        // Fall through to download fallback
+        _projectFileHandle = null;
+      }
+    }
+
+    // Fallback: classic download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = projName + '.pyvault';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('💾 Файл скачан в папку загрузок');
+    markSaved();
+  } catch(e) {
+    toast('Ошибка сохранения: ' + e.message, 'err');
+  }
 }
 
 async function importProject(e) {
@@ -950,6 +1024,14 @@ async function importProject(e) {
   if (data.ok) {
     state = await api('/api/state');
     document.getElementById('proj-name').value = state.project_name;
+    // Try to get a writable file handle for the opened file (so future saves go to same file)
+    if (window.showSaveFilePicker && file) {
+      try {
+        // We can't get a handle from the input file directly in all browsers,
+        // so reset handle — next save will prompt once, then remember
+        _projectFileHandle = null;
+      } catch(e) { _projectFileHandle = null; }
+    }
     closeEditor();
     render();
     toast(`✓ Проект «${data.name}» загружен`);
