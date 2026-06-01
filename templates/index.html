@@ -20,10 +20,8 @@
   <span id="unsaved-dot" class="unsaved-dot hidden" title="Есть несохранённые изменения">●</span>
 
   <div class="tb-actions">
-    <label class="tb-btn" title="Открыть .pyvault файл">
-      📂 Открыть
-      <input type="file" id="import-input" accept=".pyvault,.json" style="display:none">
-    </label>
+    <button type="button" class="tb-btn" onclick="openProjectFile()" title="Открыть .pyvault файл">📂 Открыть</button>
+    <input type="file" id="import-input" accept=".pyvault,.json" style="display:none">
 
     <button class="tb-btn primary" id="save-btn" onclick="exportProject()">
       💾 Сохранить
@@ -195,9 +193,13 @@
             <div class="tl sys">// Консоль вывода</div>
           </div>
           <div id="terminal-bar">
-            <button class="run-dir-btn" onclick="openDirPicker()" title="Выбрать рабочую директорию">
-              📂 <span id="run-dir-label">~</span>
-            </button>
+            <button type="button" class="run-dir-pick-btn" onclick="openDirPicker()" title="Обзор папок">📂</button>
+            <input type="text" id="run-dir-input" class="run-dir-input"
+              placeholder="Путь запуска: C:\Projects\myapp"
+              spellcheck="false" autocomplete="off"
+              title="Рабочая директория — Enter для применения"
+              onkeydown="onRunDirInputKey(event)">
+            <button type="button" class="run-dir-apply-btn" onclick="applyManualRunDir()" title="Применить путь">✓</button>
             <button class="run-btn" id="run-btn" onclick="runScript()">
               ▶ Запустить
             </button>
@@ -308,6 +310,14 @@
   <div class="modal" style="width:min(520px,92vw)">
     <h2>📂 Рабочая директория</h2>
     <div class="dir-current" id="dir-current">/</div>
+    <div class="form-group" style="margin-top:10px;margin-bottom:0">
+      <label class="form-label">Путь вручную</label>
+      <div class="dir-manual-row">
+        <input class="form-input" id="dir-manual-path" placeholder="D:\Projects\myapp" spellcheck="false" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();applyDirManualPath();}">
+        <button type="button" class="btn-ok" onclick="applyDirManualPath()">✓</button>
+      </div>
+    </div>
     <div class="dir-drives" id="dir-drives"></div>
     <div class="dir-list" id="dir-list"></div>
     <div class="modal-actions" style="margin-top:14px">

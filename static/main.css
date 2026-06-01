@@ -738,23 +738,56 @@
      flex-shrink: 0;
    }
    
-   .run-dir-btn {
+   .run-dir-pick-btn {
+     flex-shrink: 0;
+     background: var(--bg3);
+     border: 1px solid var(--border2);
+     border-radius: 6px;
+     padding: 5px 10px;
+     color: var(--text2);
+     font-size: 12px;
+     cursor: pointer;
+     transition: all .15s;
+   }
+   .run-dir-pick-btn:hover { border-color: var(--accent2); color: var(--text); }
+
+   .run-dir-input {
      flex: 1;
+     min-width: 0;
      background: var(--bg3);
      border: 1px solid var(--border2);
      border-radius: 6px;
      padding: 5px 9px;
-     color: var(--text3);
+     color: var(--text);
      font-family: var(--mono);
      font-size: 10px;
+     outline: none;
+     transition: border-color .15s;
+   }
+   .run-dir-input:focus { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(0,200,255,.1); }
+   .run-dir-input::placeholder { color: var(--text3); }
+
+   .run-dir-apply-btn {
+     flex-shrink: 0;
+     padding: 5px 10px;
+     background: rgba(0,255,136,.08);
+     border: 1px solid rgba(0,255,136,.3);
+     border-radius: 6px;
+     color: var(--accent);
+     font-family: var(--mono);
+     font-size: 11px;
+     font-weight: 700;
      cursor: pointer;
-     text-align: left;
-     white-space: nowrap;
-     overflow: hidden;
-     text-overflow: ellipsis;
      transition: all .15s;
    }
-   .run-dir-btn:hover { border-color: var(--accent2); color: var(--text); }
+   .run-dir-apply-btn:hover { background: rgba(0,255,136,.18); }
+
+   .dir-manual-row {
+     display: flex;
+     gap: 8px;
+     align-items: center;
+   }
+   .dir-manual-row .form-input { flex: 1; min-width: 0; }
    
    .run-btn {
      padding: 6px 14px;

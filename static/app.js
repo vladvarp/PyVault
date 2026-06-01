@@ -118,6 +118,90 @@ function applyDirtyUI(dirty) {
 function markUnsaved() { touchProject(); }
 function markSaved() { setProjectBaseline(projectFileLabel); }
 
+function isProjectFileLinked() {
+  return !!_projectFileHandle;
+}
+
+// ── File System Access API: привязка к .pyvault ──────────────────
+const HANDLE_DB = 'pyvault-fs';
+const HANDLE_STORE = 'handles';
+const HANDLE_KEY = 'project-file';
+
+function openHandleDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(HANDLE_DB, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(HANDLE_STORE)) {
+        req.result.createObjectStore(HANDLE_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function persistProjectFileHandle(handle) {
+  if (!handle || !window.indexedDB) return;
+  const db = await openHandleDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE, 'readwrite');
+    tx.objectStore(HANDLE_STORE).put(handle, HANDLE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function clearPersistedProjectFileHandle() {
+  if (!window.indexedDB) return;
+  try {
+    const db = await openHandleDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_STORE, 'readwrite');
+      tx.objectStore(HANDLE_STORE).delete(HANDLE_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (_) { /* ignore */ }
+}
+
+async function restoreProjectFileHandle() {
+  if (!window.indexedDB) return null;
+  try {
+    const db = await openHandleDb();
+    const handle = await new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_STORE, 'readonly');
+      const req = tx.objectStore(HANDLE_STORE).get(HANDLE_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    if (!handle || typeof handle.queryPermission !== 'function') return null;
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'prompt') perm = await handle.requestPermission({ mode: 'readwrite' });
+    return perm === 'granted' ? handle : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function ensureProjectWriteAccess() {
+  if (!_projectFileHandle) return false;
+  let perm = await _projectFileHandle.queryPermission({ mode: 'readwrite' });
+  if (perm === 'granted') return true;
+  if (perm === 'prompt') {
+    perm = await _projectFileHandle.requestPermission({ mode: 'readwrite' });
+    return perm === 'granted';
+  }
+  return false;
+}
+
+async function writeBlobToProjectFile(blob) {
+  if (!await ensureProjectWriteAccess()) return false;
+  const writable = await _projectFileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return true;
+}
+
 // ── Custom confirm dialog ────────────────────────────────────────
 function showConfirm({ title, message, okText = 'Подтвердить', danger = false }) {
   return new Promise(resolve => {
@@ -165,6 +249,13 @@ async function init() {
       document.getElementById('unsaved-warning').classList.remove('hidden');
     }
   });
+
+  const restoredHandle = await restoreProjectFileHandle();
+  if (restoredHandle) {
+    _projectFileHandle = restoredHandle;
+    projectFileLabel = restoredHandle.name;
+    updateProjectFileLabel();
+  }
 
   setProjectBaseline(null);
   render();
@@ -467,7 +558,7 @@ function openEditor(id) {
 
   document.getElementById('win-title').textContent = (s.icon||'🐍') + ' ' + s.name;
   document.getElementById('code-editor').value = s.code || '';
-  document.getElementById('run-dir-label').textContent = shortPath(s.run_dir || '~');
+  syncRunDirInput(s.run_dir || '');
   document.getElementById('editor-overlay').classList.remove('hidden');
 
   refreshSyntaxHighlight();
@@ -677,8 +768,11 @@ async function runScript() {
     return;
   }
 
+  await syncRunDirFromInput();
+
   clearTerminal();
   addTermLine(`> python ${s.name}`, 'sys');
+  addTermLine(`cwd: ${s.run_dir || '—'}`, 'sys');
   switchWinTab('terminal', null);
 
   const res = await api('/api/script/' + currentScriptId + '/run', 'POST', { run_dir: s.run_dir });
@@ -770,9 +864,87 @@ function isRunning(id) {
 }
 
 // ── Dir Picker ───────────────────────────────────────────────────
+function syncRunDirInput(path) {
+  const inp = document.getElementById('run-dir-input');
+  if (inp) inp.value = path || '';
+}
+
+async function validateDirPath(path) {
+  const trimmed = (path || '').trim();
+  if (!trimmed) return null;
+  const data = await api('/api/ls?path=' + encodeURIComponent(trimmed));
+  if (data.error) return null;
+  return data.path;
+}
+
+async function setRunDir(path) {
+  if (!currentScriptId || !path) return false;
+  await api('/api/script/' + currentScriptId, 'PUT', { run_dir: path });
+  const s = state.scripts.find(x => x.id === currentScriptId);
+  if (s) s.run_dir = path;
+  dirPickerPath = path;
+  syncRunDirInput(path);
+  touchProject();
+  return true;
+}
+
+function onRunDirInputKey(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    applyManualRunDir();
+  }
+}
+
+async function syncRunDirFromInput() {
+  if (!currentScriptId) return;
+  const inp = document.getElementById('run-dir-input');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (!raw) return;
+  const s = state.scripts.find(x => x.id === currentScriptId);
+  if (s && s.run_dir === raw) return;
+  const resolved = await validateDirPath(raw);
+  if (resolved) await setRunDir(resolved);
+}
+
+async function applyManualRunDir() {
+  if (!currentScriptId) return;
+  const raw = document.getElementById('run-dir-input').value.trim();
+  if (!raw) {
+    toast('Укажите путь к папке', 'err');
+    return;
+  }
+  const resolved = await validateDirPath(raw);
+  if (!resolved) {
+    toast('Папка не найдена или недоступна: ' + raw, 'err');
+    return;
+  }
+  await setRunDir(resolved);
+  toast('✓ Путь запуска: ' + shortPath(resolved));
+}
+
+async function applyDirManualPath() {
+  const raw = document.getElementById('dir-manual-path').value.trim();
+  if (!raw) {
+    toast('Введите путь', 'err');
+    return;
+  }
+  const resolved = await validateDirPath(raw);
+  if (!resolved) {
+    toast('Папка не найдена: ' + raw, 'err');
+    return;
+  }
+  dirPickerPath = resolved;
+  document.getElementById('dir-current').textContent = resolved;
+  document.getElementById('dir-manual-path').value = resolved;
+  await loadDir(resolved);
+}
+
 async function openDirPicker() {
   if (!currentScriptId) return;
   const s = state.scripts.find(x => x.id === currentScriptId);
+  const manual = document.getElementById('dir-manual-path');
+  if (manual) manual.value = s?.run_dir || '';
   let start = s ? (s.run_dir || '') : '';
   if (!start || start === '/' || start === '\\') {
     if (_isWindows) start = '__drives__';
@@ -856,12 +1028,8 @@ async function selectDir() {
     toast('Выберите папку или диск', 'err');
     return;
   }
-  await api('/api/script/' + currentScriptId, 'PUT', { run_dir: dirPickerPath });
-  const s = state.scripts.find(x => x.id === currentScriptId);
-  if (s) s.run_dir = dirPickerPath;
-  document.getElementById('run-dir-label').textContent = shortPath(dirPickerPath);
+  await setRunDir(dirPickerPath);
   closeModal('modal-dir');
-  touchProject();
   toast('✓ Директория установлена');
 }
 
@@ -1271,6 +1439,71 @@ async function ctxDelete() {
 }
 
 // ── Project Save / Load ──────────────────────────────────────────
+async function openProjectFile() {
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{
+          description: 'PyVault Project',
+          accept: { 'application/json': ['.pyvault', '.json'] },
+        }],
+        multiple: false,
+      });
+      await importProjectFromHandle(handle);
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  document.getElementById('import-input').click();
+}
+
+async function importProjectFromHandle(handle) {
+  const file = await handle.getFile();
+  const form = new FormData();
+  form.append('file', file);
+  const r = await fetch('/api/project/import', { method: 'POST', body: form });
+  const data = await r.json();
+  if (!data.ok) {
+    toast('Ошибка: ' + (data.error || 'импорт'), 'err');
+    return;
+  }
+  _projectFileHandle = handle;
+  projectFileLabel = handle.name;
+  await persistProjectFileHandle(handle);
+  state = await api('/api/state');
+  document.getElementById('proj-name').value = state.project_name;
+  closeEditor();
+  render();
+  updateProjectFileLabel();
+  toast(`✓ Проект «${data.name}» открыт`);
+  setProjectBaseline(handle.name);
+}
+
+async function importProject(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  const r = await fetch('/api/project/import', { method: 'POST', body: form });
+  const data = await r.json();
+  if (data.ok) {
+    _projectFileHandle = null;
+    await clearPersistedProjectFileHandle();
+    projectFileLabel = file.name;
+    state = await api('/api/state');
+    document.getElementById('proj-name').value = state.project_name;
+    closeEditor();
+    render();
+    updateProjectFileLabel();
+    toast(`✓ Проект «${data.name}» загружен (для автосохранения откройте через «Открыть» в Chrome/Edge)`);
+    setProjectBaseline(file.name);
+  } else {
+    toast('Ошибка: ' + data.error, 'err');
+  }
+  e.target.value = '';
+}
+
 async function exportProject() {
   try {
     await api('/api/state', 'POST', {
@@ -1283,38 +1516,43 @@ async function exportProject() {
     const blob = await resp.blob();
     const projName = (state.project_name || 'project').replace(/[^a-zA-Z0-9_а-яА-ЯёЁ\-]/g, '_');
 
-    // Try File System Access API first (Chrome/Edge) — allows true "Save" to same file
+    if (_projectFileHandle) {
+      const ok = await writeBlobToProjectFile(blob);
+      if (ok) {
+        projectFileLabel = _projectFileHandle.name || projectFileLabel;
+        updateProjectFileLabel();
+        toast('💾 Сохранено в ' + (_projectFileHandle.name || 'файл'));
+        setProjectBaseline(projectFileLabel || _projectFileHandle.name);
+        return;
+      }
+      toast('Нет доступа к файлу — откройте проект заново', 'err');
+      return;
+    }
+
     if (window.showSaveFilePicker) {
       try {
-        // If we already have a handle (previously saved), use it directly — no dialog
-        if (_projectFileHandle) {
-          const writable = await _projectFileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          projectFileLabel = _projectFileHandle.name || projectFileLabel;
-          toast('💾 Проект сохранён');
-          setProjectBaseline(projectFileLabel || _projectFileHandle.name);
+        _projectFileHandle = await window.showSaveFilePicker({
+          suggestedName: (projectFileLabel || projName).replace(/\.(pyvault|json)$/i, '') + '.pyvault',
+          types: [{ description: 'PyVault Project', accept: { 'application/json': ['.pyvault'] } }],
+        });
+        const ok = await writeBlobToProjectFile(blob);
+        if (!ok) {
+          _projectFileHandle = null;
+          toast('Не удалось записать файл', 'err');
           return;
         }
-        _projectFileHandle = await window.showSaveFilePicker({
-          suggestedName: projName + '.pyvault',
-          types: [{ description: 'PyVault Project', accept: { 'application/json': ['.pyvault'] } }]
-        });
-        const writable = await _projectFileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
         projectFileLabel = _projectFileHandle.name;
+        await persistProjectFileHandle(_projectFileHandle);
+        updateProjectFileLabel();
         toast('💾 Проект сохранён');
         setProjectBaseline(_projectFileHandle.name);
         return;
-      } catch(e) {
-        if (e.name === 'AbortError') return; // user cancelled dialog
-        // Fall through to download fallback
+      } catch (e) {
+        if (e.name === 'AbortError') return;
         _projectFileHandle = null;
       }
     }
 
-    // Fallback: classic download
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1324,31 +1562,9 @@ async function exportProject() {
     projectFileLabel = projName + '.pyvault';
     toast('💾 Файл скачан в папку загрузок');
     setProjectBaseline(projectFileLabel);
-  } catch(e) {
+  } catch (e) {
     toast('Ошибка сохранения: ' + e.message, 'err');
   }
-}
-
-async function importProject(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const form = new FormData();
-  form.append('file', file);
-  const r = await fetch('/api/project/import', { method: 'POST', body: form });
-  const data = await r.json();
-  if (data.ok) {
-    state = await api('/api/state');
-    document.getElementById('proj-name').value = state.project_name;
-    _projectFileHandle = null;
-    projectFileLabel = file.name;
-    closeEditor();
-    render();
-    toast(`✓ Проект «${data.name}» загружен`);
-    setProjectBaseline(file.name);
-  } else {
-    toast('Ошибка: ' + data.error, 'err');
-  }
-  e.target.value = '';
 }
 
 // ── View / Sort ──────────────────────────────────────────────────
