@@ -16,6 +16,7 @@
   <span class="logo-ver">v2</span>
   <div class="tb-sep"></div>
   <input id="proj-name" value="Мой Проект" spellcheck="false" title="Название проекта">
+  <span id="proj-file-label" class="proj-file-label" title="Привязанный файл проекта">— новый проект</span>
   <span id="unsaved-dot" class="unsaved-dot hidden" title="Есть несохранённые изменения">●</span>
 
   <div class="tb-actions">
@@ -157,16 +158,21 @@
           <div id="editor-inner">
             <!-- Line numbers -->
             <div id="line-numbers"></div>
-            <!-- Code editor -->
-            <textarea id="code-editor"
-              spellcheck="false"
-              autocomplete="off"
-              oninput="onCodeChange()"
-              onkeydown="handleEditorKey(event)"
-              onscroll="syncLineScroll()"
-              onclick="updateStatusBar()"
-              onkeyup="updateStatusBar()"
-            ></textarea>
+            <!-- Syntax highlight + code editor -->
+            <div id="code-editor-wrap">
+              <pre id="code-highlight" aria-hidden="true"><code></code></pre>
+              <textarea id="code-editor"
+                spellcheck="false"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                oninput="onCodeChange()"
+                onkeydown="handleEditorKey(event)"
+                onscroll="syncLineScroll()"
+                onclick="updateStatusBar()"
+                onkeyup="updateStatusBar()"
+              ></textarea>
+            </div>
           </div>
           <!-- Status bar -->
           <div class="editor-status">
@@ -285,11 +291,24 @@
   </div>
 </div>
 
+<!-- Confirm dialog -->
+<div class="modal-back" id="modal-confirm">
+  <div class="modal" style="width:min(400px,92vw)">
+    <h2 id="confirm-title">Подтверждение</h2>
+    <p id="confirm-message" style="font-size:12px;color:var(--text2);line-height:1.6;margin:8px 0 4px"></p>
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn-cancel" id="confirm-cancel-btn" onclick="closeConfirm(false)">Отмена</button>
+      <button class="btn-danger" id="confirm-ok-btn" onclick="closeConfirm(true)">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
 <!-- Dir Picker -->
 <div class="modal-back" id="modal-dir">
   <div class="modal" style="width:min(520px,92vw)">
     <h2>📂 Рабочая директория</h2>
     <div class="dir-current" id="dir-current">/</div>
+    <div class="dir-drives" id="dir-drives"></div>
     <div class="dir-list" id="dir-list"></div>
     <div class="modal-actions" style="margin-top:14px">
       <button class="btn-cancel" onclick="closeModal('modal-dir')">Отмена</button>

@@ -607,6 +607,37 @@
      overflow: hidden;
      position: relative;
    }
+
+   #code-editor-wrap {
+     flex: 1;
+     position: relative;
+     overflow: hidden;
+     min-width: 0;
+   }
+
+   #code-highlight {
+     position: absolute;
+     inset: 0;
+     margin: 0;
+     padding: 14px 14px;
+     font-family: var(--mono);
+     font-size: 13px;
+     line-height: 1.65;
+     tab-size: 4;
+     white-space: pre;
+     overflow-wrap: normal;
+     overflow: hidden;
+     pointer-events: none;
+     color: var(--text);
+     background: var(--bg);
+   }
+   #code-highlight code {
+     display: block;
+     font-family: inherit;
+     font-size: inherit;
+     line-height: inherit;
+     white-space: pre;
+   }
    
    #line-numbers {
      width: 52px;
@@ -630,9 +661,13 @@
    .ln { height: calc(13px * 1.65); display: block; padding-right: 8px; }
    
    #code-editor {
-     flex: 1;
-     background: var(--bg);
-     color: var(--text);
+     position: absolute;
+     inset: 0;
+     width: 100%;
+     height: 100%;
+     background: transparent;
+     color: transparent;
+     -webkit-text-fill-color: transparent;
      font-family: var(--mono);
      font-size: 13px;
      line-height: 1.65;
@@ -646,6 +681,9 @@
      overflow-wrap: normal;
      overflow: auto;
      user-select: text;
+   }
+   #code-editor::selection {
+     background: rgba(0, 255, 136, 0.22);
    }
    #code-editor::-webkit-scrollbar { width: 6px; height: 6px; }
    #code-editor::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
@@ -942,6 +980,32 @@
      color: var(--text2); display: flex; align-items: center; gap: 7px; transition: background .1s;
    }
    .dir-item:hover { background: var(--bg3); color: var(--text); }
+   .dir-drives {
+     display: flex;
+     flex-wrap: wrap;
+     gap: 6px;
+     margin-top: 8px;
+   }
+   .dir-drives:empty { display: none; }
+   .dir-drive-btn {
+     padding: 5px 12px;
+     font-size: 11px;
+     font-family: var(--mono);
+     color: var(--accent2);
+     background: rgba(0, 200, 255, 0.06);
+     border: 1px solid var(--border2);
+     border-radius: 6px;
+     cursor: pointer;
+     transition: background .12s;
+   }
+   .dir-drive-btn:hover { background: rgba(0, 200, 255, 0.14); color: var(--text); }
+   .dir-section-label {
+     padding: 6px 12px 2px;
+     font-size: 9px;
+     text-transform: uppercase;
+     letter-spacing: .06em;
+     color: var(--text3);
+   }
    
    /* Compile modal */
    .compile-log {
@@ -1038,6 +1102,20 @@
 }
 #proj-name:hover { border-color: var(--accent2); color: var(--text); background: rgba(0,200,255,.04); }
 #proj-name:focus { border-color: var(--accent); color: var(--text); background: var(--bg3); box-shadow: 0 0 0 2px rgba(0,255,136,.12); }
+
+.proj-file-label {
+  font-size: 10px;
+  color: var(--text3);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+}
+.proj-file-label.linked { color: var(--accent2); border-color: rgba(0,200,255,.25); }
 
 /* ── UNSAVED DOT (titlebar) ─────────────────────────────────────── */
 .unsaved-dot {

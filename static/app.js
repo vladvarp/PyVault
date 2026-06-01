@@ -14,53 +14,162 @@ let dirPickerPath    = null;
 let moveSel          = null;   // selected folder id in move modal
 let logTimer         = null;
 let logLastLen       = 0;
-let hasUnsavedChanges = false;  // track unsaved state
+let hasUnsavedChanges = false;
+let savedProjectSnapshot = null;  // JSON baseline последнего сохранённого .pyvault
+let projectFileLabel   = null;    // имя привязанного файла
+let _projectFileHandle = null;
+let _confirmResolver   = null;
+let _isWindows         = false;
 
 const COLORS = ['#00ff88','#00c8ff','#ff004d','#ffd700','#9d4edd','#ff6b35','#2ec4b6','#e63946','#06d6a0','#f72585'];
+const PY_KEYWORDS = new Set([
+  'False','None','True','and','as','assert','async','await','break','class','continue',
+  'def','del','elif','else','except','finally','for','from','global','if','import',
+  'in','is','lambda','nonlocal','not','or','pass','raise','return','try','while','with','yield'
+]);
+const PY_BUILTINS = new Set([
+  'print','len','range','str','int','float','list','dict','set','tuple','bool','type',
+  'open','input','enumerate','zip','map','filter','sorted','reversed','sum','min','max',
+  'abs','round','isinstance','issubclass','hasattr','getattr','setattr','delattr',
+  'super','property','staticmethod','classmethod','Exception','ValueError','TypeError',
+  'KeyError','IndexError','RuntimeError','StopIteration','FileNotFoundError','OSError'
+]);
 const SCRIPT_ICONS = ['🐍','⚡','🔧','🛠','📊','🤖','🧪','🔍','💡','🚀','🎯','🔑','📡','🧩','🌐','🔐','💾','📈','🗂','⚙'];
 const FOLDER_ICONS = ['📁','📂','🗂','💼','🗃','📦','🎒','🏷','🧲','🔬'];
 
-// ── Unsaved changes tracking ─────────────────────────────────────
-function markUnsaved() {
-  hasUnsavedChanges = true;
-  document.getElementById('unsaved-dot').classList.remove('hidden');
-  document.getElementById('editor-modified-badge').classList.remove('hidden');
-  document.getElementById('save-btn').classList.add('has-unsaved');
+// ── Project snapshot / dirty vs .pyvault file ────────────────────
+function normalizeProjectForSnapshot(data) {
+  const scripts = (data.scripts || []).map(s => ({
+    id: s.id,
+    name: s.name,
+    code: s.code || '',
+    folder_id: s.folder_id || null,
+    tags: [...(s.tags || [])].sort(),
+    description: s.description || '',
+    color: s.color || '#00ff88',
+    icon: s.icon || '🐍',
+    run_dir: s.run_dir || '',
+    pinned: !!s.pinned,
+  })).sort((a, b) => a.id.localeCompare(b.id));
+
+  const folders = (data.folders || []).map(f => ({
+    id: f.id,
+    name: f.name,
+    color: f.color,
+    icon: f.icon,
+  })).sort((a, b) => a.id.localeCompare(b.id));
+
+  return JSON.stringify({
+    project_name: data.project_name || '',
+    folders,
+    scripts,
+    settings: data.settings || {},
+  });
 }
 
-function markSaved() {
-  hasUnsavedChanges = false;
-  document.getElementById('unsaved-dot').classList.add('hidden');
-  document.getElementById('editor-modified-badge').classList.add('hidden');
-  document.getElementById('save-btn').classList.remove('has-unsaved');
+function serializeCurrentProject() {
+  return normalizeProjectForSnapshot(state);
+}
+
+function setProjectBaseline(label) {
+  savedProjectSnapshot = serializeCurrentProject();
+  if (label !== undefined) projectFileLabel = label;
+  updateProjectFileLabel();
+  applyDirtyUI(false);
+}
+
+function updateProjectFileLabel() {
+  const el = document.getElementById('proj-file-label');
+  if (!el) return;
+  if (projectFileLabel) {
+    el.textContent = '📎 ' + projectFileLabel;
+    el.classList.add('linked');
+    el.title = 'Файл проекта: ' + projectFileLabel;
+  } else if (_projectFileHandle && _projectFileHandle.name) {
+    el.textContent = '📎 ' + _projectFileHandle.name;
+    el.classList.add('linked');
+    el.title = 'Файл проекта: ' + _projectFileHandle.name;
+  } else {
+    el.textContent = '— не сохранён в файл';
+    el.classList.remove('linked');
+    el.title = 'Сохраните проект в .pyvault для привязки к файлу';
+  }
+}
+
+function checkProjectDirty() {
+  const dirty = savedProjectSnapshot === null
+    ? true
+    : serializeCurrentProject() !== savedProjectSnapshot;
+  applyDirtyUI(dirty);
+  return dirty;
+}
+
+function touchProject() {
+  checkProjectDirty();
+}
+
+function applyDirtyUI(dirty) {
+  hasUnsavedChanges = dirty;
+  document.getElementById('unsaved-dot').classList.toggle('hidden', !dirty);
+  document.getElementById('editor-modified-badge').classList.toggle('hidden', !dirty);
+  document.getElementById('save-btn').classList.toggle('has-unsaved', dirty);
+}
+
+function markUnsaved() { touchProject(); }
+function markSaved() { setProjectBaseline(projectFileLabel); }
+
+// ── Custom confirm dialog ────────────────────────────────────────
+function showConfirm({ title, message, okText = 'Подтвердить', danger = false }) {
+  return new Promise(resolve => {
+    _confirmResolver = resolve;
+    document.getElementById('confirm-title').textContent = title || 'Подтверждение';
+    document.getElementById('confirm-message').textContent = message || '';
+    const okBtn = document.getElementById('confirm-ok-btn');
+    okBtn.textContent = okText;
+    okBtn.className = danger ? 'btn-danger' : 'btn-ok';
+    openModal('modal-confirm');
+  });
+}
+
+function closeConfirm(ok) {
+  closeModal('modal-confirm');
+  if (_confirmResolver) {
+    const fn = _confirmResolver;
+    _confirmResolver = null;
+    fn(!!ok);
+  }
 }
 
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
+  const drivesInfo = await api('/api/drives');
+  _isWindows = !!(drivesInfo && drivesInfo.is_windows);
+
   state = await api('/api/state');
   document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
   document.getElementById('proj-name').addEventListener('input', e => {
     state.project_name = e.target.value;
     api('/api/state', 'POST', { project_name: e.target.value });
-    markUnsaved();
+    touchProject();
   });
 
   document.getElementById('import-input').addEventListener('change', importProject);
   document.addEventListener('click', hideCtx);
   document.addEventListener('keydown', onGlobalKey);
 
-  // Warn before closing tab if unsaved changes
   window.addEventListener('beforeunload', e => {
+    checkProjectDirty();
     if (hasUnsavedChanges) {
       e.preventDefault();
       e.returnValue = '';
-      // Also show our own banner briefly
       document.getElementById('unsaved-warning').classList.remove('hidden');
     }
   });
 
+  setProjectBaseline(null);
   render();
   setInterval(pollRunning, 1500);
+  setInterval(syncStateFromServer, 2000);
 }
 
 // ── API helper ───────────────────────────────────────────────────
@@ -78,11 +187,40 @@ async function api(url, method = 'GET', body = null) {
   }
 }
 
+// ── Sync in-memory UI with server vault ──────────────────────────
+async function syncStateFromServer() {
+  const remote = await api('/api/state');
+  if (!remote || remote.error) return;
+  const remoteSnap = normalizeProjectForSnapshot(remote);
+  const localSnap = serializeCurrentProject();
+  if (remoteSnap !== localSnap) {
+    if (!hasUnsavedChanges) {
+      state = remote;
+      document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
+      if (currentScriptId) {
+        const s = state.scripts.find(x => x.id === currentScriptId);
+        if (s) {
+          document.getElementById('code-editor').value = s.code || '';
+          refreshSyntaxHighlight();
+          updateLineNumbers();
+          updateStatusBar();
+        } else {
+          closeEditor();
+        }
+      }
+      render();
+    } else {
+      touchProject();
+    }
+  }
+}
+
 // ── Render ───────────────────────────────────────────────────────
 function render() {
   renderSidebar();
   renderCanvas();
   updateStats();
+  checkProjectDirty();
 }
 
 function renderSidebar() {
@@ -315,6 +453,7 @@ function attachDrag() {
       const s = state.scripts.find(x => x.id === sid);
       if (s) s.folder_id = fid;
       render();
+      touchProject();
       toast(`Перемещён в папку`);
     });
   });
@@ -331,6 +470,7 @@ function openEditor(id) {
   document.getElementById('run-dir-label').textContent = shortPath(s.run_dir || '~');
   document.getElementById('editor-overlay').classList.remove('hidden');
 
+  refreshSyntaxHighlight();
   updateLineNumbers();
   updateStatusBar();
   switchWinTab('editor', document.querySelector('.win-tab'));
@@ -359,14 +499,114 @@ function updateLineNumbers() {
 function syncLineScroll() {
   const editor = document.getElementById('code-editor');
   const lnBox  = document.getElementById('line-numbers');
+  const hiPre  = document.getElementById('code-highlight');
   lnBox.scrollTop = editor.scrollTop;
+  if (hiPre) {
+    hiPre.scrollTop = editor.scrollTop;
+    hiPre.scrollLeft = editor.scrollLeft;
+  }
+}
+
+// ── Python syntax highlight ──────────────────────────────────────
+function highlightPython(code) {
+  let out = '';
+  let i = 0;
+  const n = code.length;
+
+  function append(cls, text) {
+    out += `<span class="${cls}">${esc(text)}</span>`;
+  }
+
+  while (i < n) {
+    const rest = code.slice(i);
+
+    if (rest.startsWith('#')) {
+      const end = rest.search(/\n/);
+      const chunk = end === -1 ? rest : rest.slice(0, end);
+      append('hl-cmt', chunk);
+      i += chunk.length;
+      continue;
+    }
+
+    if (rest.startsWith('"""') || rest.startsWith("'''")) {
+      const q = rest.slice(0, 3);
+      let j = i + 3;
+      while (j < n) {
+        if (code.slice(j, j + 3) === q) { j += 3; break; }
+        j++;
+      }
+      append('hl-str', code.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    if (rest[0] === '"' || rest[0] === "'") {
+      const q = rest[0];
+      let j = i + 1;
+      while (j < n) {
+        if (code[j] === '\\') { j += 2; continue; }
+        if (code[j] === q) { j++; break; }
+        if (code[j] === '\n') break;
+        j++;
+      }
+      append('hl-str', code.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    const num = rest.match(/^(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|\d+\.?\d*(?:[eE][+-]?\d+)?)/);
+    if (num) {
+      append('hl-num', num[0]);
+      i += num[0].length;
+      continue;
+    }
+
+    const ident = rest.match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (ident) {
+      const w = ident[0];
+      if (PY_KEYWORDS.has(w)) append('hl-kw', w);
+      else if (PY_BUILTINS.has(w)) append('hl-bi', w);
+      else if (/^[A-Z]/.test(w)) append('hl-cls', w);
+      else if (i + w.length < n && code[i + w.length] === '(') append('hl-fn', w);
+      else out += esc(w);
+      i += w.length;
+      continue;
+    }
+
+    const deco = rest.match(/^@[A-Za-z_][A-Za-z0-9_.]*/);
+    if (deco) {
+      append('hl-dec', deco[0]);
+      i += deco[0].length;
+      continue;
+    }
+
+    if (/^[+\-*/%=<>!&|^~]/.test(rest)) {
+      const op = rest.match(/^[+\-*/%=<>!&|^~]+/)[0];
+      append('hl-op', op);
+      i += op.length;
+      continue;
+    }
+
+    out += esc(code[i]);
+    i++;
+  }
+  return out;
+}
+
+function refreshSyntaxHighlight() {
+  const editor = document.getElementById('code-editor');
+  const codeEl = document.querySelector('#code-highlight code');
+  if (!editor || !codeEl) return;
+  const code = editor.value;
+  codeEl.innerHTML = highlightPython(code) + '\n';
 }
 
 // ── Code change ──────────────────────────────────────────────────
 function onCodeChange() {
+  refreshSyntaxHighlight();
   updateLineNumbers();
   updateStatusBar();
-  markUnsaved();
+  touchProject();
   clearTimeout(window._saveTimer);
   window._saveTimer = setTimeout(async () => {
     if (!currentScriptId) return;
@@ -375,6 +615,7 @@ function onCodeChange() {
     const s = state.scripts.find(x => x.id === currentScriptId);
     if (s) { s.code = code; updateStats(); }
     loadDeps(currentScriptId);
+    touchProject();
   }, 700);
 }
 
@@ -400,6 +641,7 @@ function handleEditorKey(e) {
     ed.value = ed.value.substring(0, s) + '    ' + ed.value.substring(end);
     ed.selectionStart = ed.selectionEnd = s + 4;
     onCodeChange();
+    refreshSyntaxHighlight();
     return;
   }
   if (e.key === 'Enter') {
@@ -414,6 +656,7 @@ function handleEditorKey(e) {
       ed.selectionStart = ed.selectionEnd = pos2 + indent.length + extra.length;
       updateLineNumbers();
       updateStatusBar();
+      refreshSyntaxHighlight();
     }, 0);
   }
   updateStatusBar();
@@ -530,31 +773,73 @@ function isRunning(id) {
 async function openDirPicker() {
   if (!currentScriptId) return;
   const s = state.scripts.find(x => x.id === currentScriptId);
-  // Always re-open at current script's run_dir (or home) — fixes "can't re-pick"
-  dirPickerPath = s ? (s.run_dir || '/') : '/';
-  await loadDir(dirPickerPath);
+  let start = s ? (s.run_dir || '') : '';
+  if (!start || start === '/' || start === '\\') {
+    if (_isWindows) start = '__drives__';
+    else start = (await api('/api/ls?path=' + encodeURIComponent(''))).path;
+  }
+  await loadDir(start);
   openModal('modal-dir');
 }
 
+async function renderDirDrives() {
+  const box = document.getElementById('dir-drives');
+  if (!box) return;
+  if (!_isWindows) {
+    box.innerHTML = '';
+    return;
+  }
+  const data = await api('/api/drives');
+  const drives = data.drives || [];
+  box.innerHTML = drives.map(d =>
+    `<button type="button" class="dir-drive-btn" data-path="${encodeURIComponent(d.path)}">${esc(d.name)}</button>`
+  ).join('');
+}
+
 async function loadDir(path) {
+  const list = document.getElementById('dir-list');
+
+  if (path === '__drives__') {
+    dirPickerPath = null;
+    document.getElementById('dir-current').textContent = 'Компьютер — выберите диск';
+    await renderDirDrives();
+    list.innerHTML = `<div class="dir-section-label">Диски</div>` +
+      ((await api('/api/drives')).drives || []).map(d =>
+        `<div class="dir-item" data-path="${encodeURIComponent(d.path)}">💿 ${esc(d.name)}</div>`
+      ).join('');
+    return;
+  }
+
   const data = await api('/api/ls?path=' + encodeURIComponent(path));
   if (data.error) { toast(data.error, 'err'); return; }
   dirPickerPath = data.path;
   document.getElementById('dir-current').textContent = data.path;
-  const list = document.getElementById('dir-list');
-  // Use data-path attributes to avoid JSON/quote escaping issues in onclick
-  list.innerHTML =
-    `<div class="dir-item" data-path="${encodeURIComponent(data.parent)}">⬆ ..</div>` +
-    data.items.filter(i => i.is_dir).map(i =>
-      `<div class="dir-item" data-path="${encodeURIComponent(i.path)}">📁 ${esc(i.name)}</div>`
-    ).join('');
+  await renderDirDrives();
+
+  let html = '';
+  if (_isWindows) {
+    html += `<div class="dir-item" data-path="__drives__">🖥 Компьютер (все диски)</div>`;
+  }
+  if (data.parent) {
+    html += `<div class="dir-item" data-path="${encodeURIComponent(data.parent)}">⬆ ..</div>`;
+  }
+  html += data.items.filter(i => i.is_dir).map(i =>
+    `<div class="dir-item" data-path="${encodeURIComponent(i.path)}">📁 ${esc(i.name)}</div>`
+  ).join('');
+  list.innerHTML = html;
 }
 
 // Event delegation for dir-list — safe click handler without inline onclick
 document.addEventListener('click', e => {
+  const driveBtn = e.target.closest('.dir-drive-btn');
+  if (driveBtn && driveBtn.dataset.path) {
+    loadDir(decodeURIComponent(driveBtn.dataset.path));
+    return;
+  }
   const item = e.target.closest('#dir-list .dir-item');
   if (item && item.dataset.path) {
-    loadDir(decodeURIComponent(item.dataset.path));
+    const p = decodeURIComponent(item.dataset.path);
+    loadDir(p === '__drives__' ? '__drives__' : p);
   }
   // Event delegation for install-all button
   const installAll = e.target.closest('.install-all-btn');
@@ -567,12 +852,16 @@ document.addEventListener('click', e => {
 });
 
 async function selectDir() {
-  if (!currentScriptId || !dirPickerPath) return;
+  if (!currentScriptId || !dirPickerPath) {
+    toast('Выберите папку или диск', 'err');
+    return;
+  }
   await api('/api/script/' + currentScriptId, 'PUT', { run_dir: dirPickerPath });
   const s = state.scripts.find(x => x.id === currentScriptId);
   if (s) s.run_dir = dirPickerPath;
   document.getElementById('run-dir-label').textContent = shortPath(dirPickerPath);
   closeModal('modal-dir');
+  touchProject();
   toast('✓ Директория установлена');
 }
 
@@ -804,6 +1093,7 @@ async function updateField(field, value) {
   if (s) { s[field] = value; }
   if (field === 'name') document.getElementById('win-title').textContent = (s.icon||'🐍') + ' ' + value;
   render();
+  touchProject();
 }
 
 // ── Create script ────────────────────────────────────────────────
@@ -837,7 +1127,7 @@ async function createScript() {
   closeModal('modal-new-script');
   render();
   toast(`✓ Скрипт «${name}» создан`);
-  markUnsaved();
+  touchProject();
   openEditor(s.id);
 }
 
@@ -859,7 +1149,7 @@ async function createFolder() {
   closeModal('modal-new-folder');
   render();
   toast(`✓ Папка «${name}» создана`);
-  markUnsaved();
+  touchProject();
 }
 
 // ── Move script ───────────────────────────────────────────────────
@@ -893,6 +1183,7 @@ async function confirmMove() {
   if (s) s.folder_id = moveSel;
   closeModal('modal-move');
   render();
+  touchProject();
   toast('✓ Скрипт перемещён');
 }
 
@@ -907,18 +1198,24 @@ function showScriptCtx(e, id) {
   m.classList.add('open');
 }
 
-function showFolderCtx(e, id) {
+async function showFolderCtx(e, id) {
   e.preventDefault();
   e.stopPropagation();
-  // Simple inline folder menu
-  if (confirm(`Удалить папку? Скрипты останутся в корне.`)) {
-    api('/api/folder/' + id, 'DELETE').then(() => {
-      state.folders = state.folders.filter(f => f.id !== id);
-      state.scripts.forEach(s => { if (s.folder_id === id) s.folder_id = null; });
-      render();
-      toast('Папка удалена');
-    });
-  }
+  const f = state.folders.find(x => x.id === id);
+  const ok = await showConfirm({
+    title: 'Удалить папку?',
+    message: `Папка «${f ? f.name : ''}» будет удалена. Скрипты останутся в корне.`,
+    okText: 'Удалить',
+    danger: true,
+  });
+  if (!ok) return;
+  await api('/api/folder/' + id, 'DELETE');
+  state.folders = state.folders.filter(x => x.id !== id);
+  state.scripts.forEach(s => { if (s.folder_id === id) s.folder_id = null; });
+  if (currentFolder === id) goRoot();
+  render();
+  touchProject();
+  toast('Папка удалена');
 }
 
 function folderCtx(e, id) {
@@ -940,7 +1237,9 @@ async function ctxPin() {
   if (!s) return;
   await api('/api/script/' + ctxTargetId, 'PUT', { pinned: !s.pinned });
   s.pinned = !s.pinned;
-  render(); toast(s.pinned ? '📌 Закреплён' : 'Откреплён');
+  render();
+  touchProject();
+  toast(s.pinned ? '📌 Закреплён' : 'Откреплён');
 }
 async function ctxDup() {
   hideCtx();
@@ -948,24 +1247,38 @@ async function ctxDup() {
   if (!s) return;
   const copy = await api('/api/script', 'POST', { ...s, name: s.name + ' (копия)', id: undefined });
   state.scripts.push(copy);
-  render(); toast('⎘ Скрипт скопирован');
+  render();
+  touchProject();
+  toast('⎘ Скрипт скопирован');
 }
 function ctxCompile()   { hideCtx(); openEditor(ctxTargetId); compileScript(); }
 async function ctxDelete() {
   hideCtx();
-  if (!confirm('Удалить скрипт?')) return;
+  const s = state.scripts.find(x => x.id === ctxTargetId);
+  const ok = await showConfirm({
+    title: 'Удалить скрипт?',
+    message: s ? `Скрипт «${s.name}» будет удалён безвозвратно.` : 'Скрипт будет удалён.',
+    okText: 'Удалить',
+    danger: true,
+  });
+  if (!ok) return;
   await api('/api/script/' + ctxTargetId, 'DELETE');
-  state.scripts = state.scripts.filter(s => s.id !== ctxTargetId);
+  state.scripts = state.scripts.filter(x => x.id !== ctxTargetId);
   if (currentScriptId === ctxTargetId) closeEditor();
-  render(); toast('Удалено', 'err');
+  render();
+  touchProject();
+  toast('Удалено', 'err');
 }
 
 // ── Project Save / Load ──────────────────────────────────────────
-let _projectFileHandle = null;  // File System Access API handle
-
 async function exportProject() {
   try {
-    // Fetch project JSON from server
+    await api('/api/state', 'POST', {
+      project_name: state.project_name,
+      folders: state.folders,
+      scripts: state.scripts,
+      settings: state.settings,
+    });
     const resp = await fetch('/api/project/export');
     const blob = await resp.blob();
     const projName = (state.project_name || 'project').replace(/[^a-zA-Z0-9_а-яА-ЯёЁ\-]/g, '_');
@@ -978,11 +1291,11 @@ async function exportProject() {
           const writable = await _projectFileHandle.createWritable();
           await writable.write(blob);
           await writable.close();
+          projectFileLabel = _projectFileHandle.name || projectFileLabel;
           toast('💾 Проект сохранён');
-          markSaved();
+          setProjectBaseline(projectFileLabel || _projectFileHandle.name);
           return;
         }
-        // First save — show dialog once, store handle
         _projectFileHandle = await window.showSaveFilePicker({
           suggestedName: projName + '.pyvault',
           types: [{ description: 'PyVault Project', accept: { 'application/json': ['.pyvault'] } }]
@@ -990,8 +1303,9 @@ async function exportProject() {
         const writable = await _projectFileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
+        projectFileLabel = _projectFileHandle.name;
         toast('💾 Проект сохранён');
-        markSaved();
+        setProjectBaseline(_projectFileHandle.name);
         return;
       } catch(e) {
         if (e.name === 'AbortError') return; // user cancelled dialog
@@ -1007,8 +1321,9 @@ async function exportProject() {
     a.download = projName + '.pyvault';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+    projectFileLabel = projName + '.pyvault';
     toast('💾 Файл скачан в папку загрузок');
-    markSaved();
+    setProjectBaseline(projectFileLabel);
   } catch(e) {
     toast('Ошибка сохранения: ' + e.message, 'err');
   }
@@ -1024,18 +1339,12 @@ async function importProject(e) {
   if (data.ok) {
     state = await api('/api/state');
     document.getElementById('proj-name').value = state.project_name;
-    // Try to get a writable file handle for the opened file (so future saves go to same file)
-    if (window.showSaveFilePicker && file) {
-      try {
-        // We can't get a handle from the input file directly in all browsers,
-        // so reset handle — next save will prompt once, then remember
-        _projectFileHandle = null;
-      } catch(e) { _projectFileHandle = null; }
-    }
+    _projectFileHandle = null;
+    projectFileLabel = file.name;
     closeEditor();
     render();
     toast(`✓ Проект «${data.name}» загружен`);
-    markSaved();
+    setProjectBaseline(file.name);
   } else {
     toast('Ошибка: ' + data.error, 'err');
   }
@@ -1146,6 +1455,7 @@ function onGlobalKey(e) {
   }
   if (e.key === 'Escape') {
     hideCtx();
+    if (_confirmResolver) { closeConfirm(false); return; }
     document.querySelectorAll('.modal-back.open').forEach(m => m.classList.remove('open'));
     if (!document.getElementById('editor-overlay').classList.contains('hidden') &&
         !document.querySelector('.modal-back.open')) {
@@ -1170,9 +1480,13 @@ function toast(msg, type = 'ok') {
 
 function shortPath(p) {
   if (!p) return '~';
-  const home = '/root';
-  if (p.startsWith(home)) return '~' + p.slice(home.length);
-  const parts = p.split('/').filter(Boolean);
+  const norm = p.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(norm)) {
+    const parts = norm.split('/').filter(Boolean);
+    if (parts.length > 3) return parts[0] + '/…/' + parts.slice(-2).join('/');
+    return p;
+  }
+  const parts = norm.split('/').filter(Boolean);
   if (parts.length > 3) return '/…/' + parts.slice(-2).join('/');
   return p;
 }

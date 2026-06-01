@@ -372,15 +372,35 @@ def api_compile(sid):
 
 # ── API: Dir listing ──────────────────────────────────────────────────────────
 
+@app.route("/api/drives")
+def api_drives():
+    """Список дисков (Windows) для выбора рабочей директории."""
+    drives = []
+    if sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            root = f"{letter}:\\"
+            if os.path.exists(root):
+                drives.append({"name": f"{letter}:", "path": root, "is_dir": True})
+    return jsonify({"drives": drives, "is_windows": sys.platform == "win32"})
+
 @app.route("/api/ls")
 def api_ls():
     path = request.args.get("path", str(Path.home()))
+    if path in ("", "/", "\\"):
+        path = str(Path.home())
     try:
         p = Path(path).resolve()
         items = []
         for item in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            items.append({"name": item.name, "path": str(item), "is_dir": item.is_dir()})
-        return jsonify({"path": str(p), "parent": str(p.parent), "items": items})
+            try:
+                items.append({"name": item.name, "path": str(item), "is_dir": item.is_dir()})
+            except OSError:
+                continue
+        parent = str(p.parent)
+        if parent == str(p):
+            parent = None
+        return jsonify({"path": str(p), "parent": parent, "items": items})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
