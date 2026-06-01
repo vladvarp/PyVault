@@ -318,6 +318,8 @@ def api_compile(sid):
             py_file = tmp_dir / f"{safe_name}.py"
             py_file.write_text(s["code"], encoding="utf-8")
 
+            no_console = d.get("noconsole", False)
+
             cmd = [
                 sys.executable, "-m", "PyInstaller",
                 f"--{build_type}",
@@ -325,6 +327,9 @@ def api_compile(sid):
                 "--workpath", str(tmp_dir / "build"),
                 "--specpath", str(tmp_dir),
             ]
+
+            if no_console:
+                cmd.append("--noconsole")
 
             # Write icon file if provided
             if icon_b64:

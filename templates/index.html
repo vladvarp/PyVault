@@ -16,6 +16,7 @@
   <span class="logo-ver">v2</span>
   <div class="tb-sep"></div>
   <input id="proj-name" value="Мой Проект" spellcheck="false" title="Название проекта">
+  <span id="unsaved-dot" class="unsaved-dot hidden" title="Есть несохранённые изменения">●</span>
 
   <div class="tb-actions">
     <label class="tb-btn" title="Открыть .pyvault файл">
@@ -23,8 +24,8 @@
       <input type="file" id="import-input" accept=".pyvault,.json" style="display:none">
     </label>
 
-    <button class="tb-btn primary" onclick="exportProject()">
-      💾 Сохранить <span class="kbd">Ctrl+S</span>
+    <button class="tb-btn primary" id="save-btn" onclick="exportProject()">
+      💾 Сохранить
     </button>
 
     <div class="tb-sep"></div>
@@ -122,7 +123,7 @@
 <!-- ╔══════════════════════════════════════════════════════════╗ -->
 <!-- ║            EDITOR OVERLAY (full-screen modal)            ║ -->
 <!-- ╚══════════════════════════════════════════════════════════╝ -->
-<div id="editor-overlay" class="hidden" onclick="if(event.target===this)closeEditor()">
+<div id="editor-overlay" class="hidden">
   <div id="editor-window">
 
     <!-- Window chrome -->
@@ -133,6 +134,7 @@
         <div class="win-dot expand" onclick="compileScript()" title="Компилировать в EXE"></div>
       </div>
       <div class="win-script-name" id="win-title">Скрипт</div>
+      <span id="editor-modified-badge" class="editor-modified-badge hidden">● несохранено</span>
 
       <!-- Quick actions -->
       <button class="tb-btn" onclick="compileScript()" style="padding:3px 9px;font-size:10px">⚙ EXE</button>
@@ -313,7 +315,12 @@
 <div class="modal-back" id="modal-compile">
   <div class="modal">
     <h2>⚙ Компиляция в EXE</h2>
-    <div id="compile-status" style="color:var(--text2);font-size:12px;margin-bottom:12px">Настройте параметры и нажмите «Компилировать»</div>
+
+    <!-- Compile status with spinner -->
+    <div id="compile-status-wrap" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <div id="compile-spinner" class="compile-spinner hidden"></div>
+      <div id="compile-status" style="color:var(--text2);font-size:12px">Настройте параметры и нажмите «Компилировать»</div>
+    </div>
 
     <!-- Build type -->
     <div class="form-group">
@@ -328,6 +335,15 @@
           📁 Папка (ZIP)
         </label>
       </div>
+    </div>
+
+    <!-- Noconsole checkbox -->
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text)">
+        <input type="checkbox" id="compile-noconsole" style="accent-color:var(--accent);width:14px;height:14px">
+        🙈 Скрыть консоль при запуске (–-noconsole / –-windowed)
+      </label>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;margin-left:22px">Для GUI-программ без терминала</div>
     </div>
 
     <!-- Icon -->
@@ -370,6 +386,19 @@
 <!-- ║           TOASTS                    ║ -->
 <!-- ╚══════════════════════════════════════╝ -->
 <div id="toasts"></div>
+
+<!-- Beforeunload warning overlay (shown when unsaved) -->
+<div id="unsaved-warning" class="unsaved-warning hidden">
+  <div class="unsaved-warning-box">
+    <div style="font-size:24px;margin-bottom:8px">⚠️</div>
+    <div style="font-family:var(--head);font-size:14px;margin-bottom:8px">Несохранённые изменения</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:18px">Если закрыть вкладку — проект может потеряться.<br>Сохраните проект перед выходом.</div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn-ok" onclick="exportProject();document.getElementById('unsaved-warning').classList.add('hidden')">💾 Сохранить сейчас</button>
+      <button class="btn-cancel" onclick="document.getElementById('unsaved-warning').classList.add('hidden')">Позже</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

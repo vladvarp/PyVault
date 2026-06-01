@@ -14,10 +14,26 @@ let dirPickerPath    = null;
 let moveSel          = null;   // selected folder id in move modal
 let logTimer         = null;
 let logLastLen       = 0;
+let hasUnsavedChanges = false;  // track unsaved state
 
 const COLORS = ['#00ff88','#00c8ff','#ff004d','#ffd700','#9d4edd','#ff6b35','#2ec4b6','#e63946','#06d6a0','#f72585'];
 const SCRIPT_ICONS = ['🐍','⚡','🔧','🛠','📊','🤖','🧪','🔍','💡','🚀','🎯','🔑','📡','🧩','🌐','🔐','💾','📈','🗂','⚙'];
 const FOLDER_ICONS = ['📁','📂','🗂','💼','🗃','📦','🎒','🏷','🧲','🔬'];
+
+// ── Unsaved changes tracking ─────────────────────────────────────
+function markUnsaved() {
+  hasUnsavedChanges = true;
+  document.getElementById('unsaved-dot').classList.remove('hidden');
+  document.getElementById('editor-modified-badge').classList.remove('hidden');
+  document.getElementById('save-btn').classList.add('has-unsaved');
+}
+
+function markSaved() {
+  hasUnsavedChanges = false;
+  document.getElementById('unsaved-dot').classList.add('hidden');
+  document.getElementById('editor-modified-badge').classList.add('hidden');
+  document.getElementById('save-btn').classList.remove('has-unsaved');
+}
 
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
@@ -26,11 +42,22 @@ async function init() {
   document.getElementById('proj-name').addEventListener('input', e => {
     state.project_name = e.target.value;
     api('/api/state', 'POST', { project_name: e.target.value });
+    markUnsaved();
   });
 
   document.getElementById('import-input').addEventListener('change', importProject);
   document.addEventListener('click', hideCtx);
   document.addEventListener('keydown', onGlobalKey);
+
+  // Warn before closing tab if unsaved changes
+  window.addEventListener('beforeunload', e => {
+    if (hasUnsavedChanges) {
+      e.preventDefault();
+      e.returnValue = '';
+      // Also show our own banner briefly
+      document.getElementById('unsaved-warning').classList.remove('hidden');
+    }
+  });
 
   render();
   setInterval(pollRunning, 1500);
@@ -339,6 +366,7 @@ function syncLineScroll() {
 function onCodeChange() {
   updateLineNumbers();
   updateStatusBar();
+  markUnsaved();
   clearTimeout(window._saveTimer);
   window._saveTimer = setTimeout(async () => {
     if (!currentScriptId) return;
@@ -502,6 +530,7 @@ function isRunning(id) {
 async function openDirPicker() {
   if (!currentScriptId) return;
   const s = state.scripts.find(x => x.id === currentScriptId);
+  // Always re-open at current script's run_dir (or home) — fixes "can't re-pick"
   dirPickerPath = s ? (s.run_dir || '/') : '/';
   await loadDir(dirPickerPath);
   openModal('modal-dir');
@@ -542,6 +571,8 @@ function compileScript() {
   document.getElementById('compile-close-btn').disabled = false;
   document.getElementById('compile-icon-name').textContent = 'Не выбрана';
   document.getElementById('compile-build-onefile').checked = true;
+  document.getElementById('compile-noconsole').checked = false;
+  document.getElementById('compile-spinner').classList.add('hidden');
   openModal('modal-compile');
 }
 
@@ -549,14 +580,18 @@ async function startCompile() {
   if (!currentScriptId) return;
   const s = state.scripts.find(x => x.id === currentScriptId);
   const buildType = document.getElementById('compile-build-onefile').checked ? 'onefile' : 'onedir';
+  const noConsole = document.getElementById('compile-noconsole').checked;
 
-  document.getElementById('compile-status').textContent = `Компилирую: ${s.name}...`;
-  document.getElementById('compile-log').textContent = 'Запускаю PyInstaller...\nЭто может занять минуту.';
+  // Show spinner + status
+  document.getElementById('compile-spinner').classList.remove('hidden');
+  document.getElementById('compile-status').textContent = `⏳ Компилирую: ${s.name}...`;
+  document.getElementById('compile-log').textContent = 'Запускаю PyInstaller...\nЭто может занять минуту.\n\nПожалуйста, подождите — процесс активен.';
   document.getElementById('compile-close-btn').disabled = true;
   document.getElementById('compile-start-btn').disabled = true;
+  document.getElementById('compile-start-btn').textContent = '⏳ Компилирую...';
 
   try {
-    const payload = { build_type: buildType };
+    const payload = { build_type: buildType, noconsole: noConsole };
     if (_compileIconB64) payload.icon_b64 = _compileIconB64;
 
     const resp = await fetch('/api/compile/' + currentScriptId, {
@@ -572,20 +607,24 @@ async function startCompile() {
       const disp = resp.headers.get('Content-Disposition') || '';
       a.download = disp.match(/filename="?([^"]+)"?/)?.[1] || s.name;
       a.click();
+      document.getElementById('compile-spinner').classList.add('hidden');
       document.getElementById('compile-status').textContent = '✓ Готово! Файл скачан.';
       document.getElementById('compile-log').textContent = buildType === 'onefile'
         ? 'EXE успешно создан.' : 'Папка упакована в ZIP.';
     } else {
       const err = await resp.json();
+      document.getElementById('compile-spinner').classList.add('hidden');
       document.getElementById('compile-status').textContent = '✗ Ошибка компиляции';
       document.getElementById('compile-log').textContent = err.output || err.error || 'Неизвестная ошибка';
     }
   } catch(e) {
+    document.getElementById('compile-spinner').classList.add('hidden');
     document.getElementById('compile-status').textContent = '✗ Ошибка';
     document.getElementById('compile-log').textContent = e.message;
   }
   document.getElementById('compile-close-btn').disabled = false;
   document.getElementById('compile-start-btn').disabled = false;
+  document.getElementById('compile-start-btn').textContent = '⚙ Компилировать';
 }
 
 function compileIconPick() {
@@ -623,7 +662,12 @@ async function loadDeps(id) {
     data.errors.forEach(e => { html += `<div class="error-row">❌ ${esc(e)}</div>`; });
   }
   if (data.third_party.length) {
-    html += `<div class="dep-group-title">📦 Сторонние пакеты</div>`;
+    // Count missing packages
+    const missing = data.third_party.filter(pkg => !data.dep_status[pkg]);
+    html += `<div class="dep-group-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>📦 Сторонние пакеты</span>
+      ${missing.length > 0 ? `<button class="install-all-btn" onclick="installAllMissing(${JSON.stringify(missing)})">⬇ Установить все (${missing.length})</button>` : ''}
+    </div>`;
     data.third_party.forEach(pkg => {
       const ok = data.dep_status[pkg];
       html += `<div class="dep-row">
@@ -659,6 +703,29 @@ async function installPkg(pkg) {
   const data = await api('/api/install', 'POST', { package: pkg });
   if (data.ok) { toast(`✓ ${pkg} установлен`); loadDeps(currentScriptId); }
   else toast(`Ошибка: ${data.error || data.output}`, 'err');
+}
+
+// Install ALL missing packages sequentially
+async function installAllMissing(pkgList) {
+  if (!pkgList || !pkgList.length) return;
+  toast(`Устанавливаю ${pkgList.length} пакетов...`, 'info');
+  // Update UI to show in progress
+  const c = document.getElementById('deps-pane');
+  const installBtn = c.querySelector('.install-all-btn');
+  if (installBtn) { installBtn.disabled = true; installBtn.textContent = '⏳ Установка...'; }
+
+  let failed = [];
+  for (const pkg of pkgList) {
+    const data = await api('/api/install', 'POST', { package: pkg });
+    if (!data.ok) failed.push(pkg);
+  }
+
+  if (failed.length === 0) {
+    toast(`✓ Все пакеты установлены`, 'ok');
+  } else {
+    toast(`⚠ Не удалось установить: ${failed.join(', ')}`, 'err');
+  }
+  loadDeps(currentScriptId);
 }
 
 // ── Info Pane ────────────────────────────────────────────────────
@@ -743,6 +810,7 @@ async function createScript() {
   closeModal('modal-new-script');
   render();
   toast(`✓ Скрипт «${name}» создан`);
+  markUnsaved();
   openEditor(s.id);
 }
 
@@ -764,6 +832,7 @@ async function createFolder() {
   closeModal('modal-new-folder');
   render();
   toast(`✓ Папка «${name}» создана`);
+  markUnsaved();
 }
 
 // ── Move script ───────────────────────────────────────────────────
@@ -868,6 +937,7 @@ async function ctxDelete() {
 function exportProject() {
   window.location.href = '/api/project/export';
   toast('💾 Проект сохранён');
+  markSaved();
 }
 
 async function importProject(e) {
@@ -883,6 +953,7 @@ async function importProject(e) {
     closeEditor();
     render();
     toast(`✓ Проект «${data.name}» загружен`);
+    markSaved();
   } else {
     toast('Ошибка: ' + data.error, 'err');
   }
@@ -936,8 +1007,21 @@ function switchWinTab(name, el) {
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
+// Double-click outside modal to close (NOT single click)
 document.querySelectorAll('.modal-back').forEach(b => {
-  b.addEventListener('click', e => { if (e.target === b) b.classList.remove('open'); });
+  let clickCount = 0;
+  let clickTimer = null;
+  b.addEventListener('click', e => {
+    if (e.target !== b) return; // only backdrop
+    clickCount++;
+    if (clickCount === 1) {
+      clickTimer = setTimeout(() => { clickCount = 0; }, 400);
+    } else if (clickCount >= 2) {
+      clearTimeout(clickTimer);
+      clickCount = 0;
+      b.classList.remove('open');
+    }
+  });
 });
 
 // ── Icon / Color pickers ─────────────────────────────────────────
@@ -961,11 +1045,16 @@ function buildColorPicker(containerId, colors, defaultColor) {
 
 // ── Keyboard ─────────────────────────────────────────────────────
 function onGlobalKey(e) {
+  // Block Ctrl+S entirely — never let browser save dialog open
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    exportProject();
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'n' && !document.getElementById('editor-overlay').classList.contains('hidden') === false) {
       e.preventDefault(); openNewScript();
     }
-    if (e.key === 's') { e.preventDefault(); exportProject(); }
     if (e.key === 'Enter' && !document.getElementById('editor-overlay').classList.contains('hidden')) {
       e.preventDefault(); runScript();
     }
