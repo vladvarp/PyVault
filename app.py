@@ -141,7 +141,14 @@ def analyze_code(code: str) -> dict:
         "classes": classes,
         "lines": lines,
         "errors": errors,
-        "complexity": "низкая" if lines < 50 else "средняя" if lines < 200 else "высокая"
+        "complexity": "простая" 
+            if lines < 50 else "низкая" 
+            if lines < 150 else "средняя"
+            if lines < 400 else "повышенная"
+            if lines < 800 else "высокая"
+            if lines < 1500 else "очень высокая"
+            if lines < 2500 else "критическая"
+            if lines < 4000 else "недопустимая"
     }
 
 def check_installed(pkg: str) -> bool:

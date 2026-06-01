@@ -56,14 +56,6 @@
       "parent_id": "c9b5bb80"
     },
     {
-      "color": "#00c8ff",
-      "created": "2026-06-01T09:34:02.772674",
-      "icon": "📂",
-      "id": "e7f32095",
-      "name": "ррр",
-      "parent_id": "c9b5bb80"
-    },
-    {
       "color": "rgb(2, 62, 138)",
       "created": "2026-06-01T09:36:00.026725",
       "icon": "📚",
@@ -154,7 +146,7 @@
       "modified": "2026-06-01T05:36:42.166988",
       "name": "Link Manager R2",
       "pinned": false,
-      "run_dir": "C:\\Users\\user",
+      "run_dir": "C:\\Users\\user\\Desktop\\Новая папка (2)",
       "tags": []
     },
     {
