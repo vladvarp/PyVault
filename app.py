@@ -30,8 +30,57 @@ vault_state = default_vault_state()
 
 run_processes = {}   # sid → Popen
 run_logs = {}        # sid → [str]
+run_files = {}       # sid → Path (временный .py в run_dir)
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
+
+def cleanup_run_file(sid: str) -> None:
+    path = run_files.pop(sid, None)
+    if path is None:
+        return
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+def resolve_run_dir(run_dir: str) -> Path:
+    p = Path(run_dir).expanduser().resolve()
+    if not p.is_dir():
+        raise FileNotFoundError(f"Директория не найдена: {run_dir}")
+    return p
+
+def script_run_env() -> dict:
+    """Окружение для дочернего Python: UTF-8 stdout/stderr (Rich, кириллица, рамки)."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    if sys.platform == "win32":
+        env["PYTHONLEGACYWINDOWSSTDIO"] = "0"
+        env.setdefault("TERM", "xterm-256color")
+    return env
+
+def python_run_args(script_name: str) -> list:
+    args = [sys.executable]
+    if sys.platform == "win32" and sys.version_info >= (3, 7):
+        args.extend(["-X", "utf8"])
+    args.extend(["-u", script_name])
+    return args
+
+_PYVAULT_UTF8_BOOT = """# PyVault: UTF-8 для консоли (Rich, Unicode, кириллица)
+import sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+"""
+
+def wrap_script_code_for_run(code: str) -> str:
+    if sys.platform == "win32":
+        return _PYVAULT_UTF8_BOOT + "\n" + code
+    return code
 
 def gen_id() -> str:
     return hashlib.md5(str(time.time_ns()).encode()).hexdigest()[:8]
@@ -166,19 +215,35 @@ def api_run(sid):
     d = request.json or {}
     for s in vault_state["scripts"]:
         if s["id"] == sid:
+            cleanup_run_file(sid)
             run_dir = d.get("run_dir") or s.get("run_dir") or str(Path.home())
-            tmp = Path(tempfile.gettempdir()) / f"pyvault_{sid}.py"
-            tmp.write_text(s["code"], encoding="utf-8")
+            try:
+                work_dir = resolve_run_dir(run_dir)
+            except FileNotFoundError as e:
+                return jsonify({"error": str(e)}), 400
+            except OSError as e:
+                return jsonify({"error": str(e)}), 400
+
+            script_file = work_dir / f"pyvault_run_{sid}.py"
+            try:
+                script_file.write_text(wrap_script_code_for_run(s["code"]), encoding="utf-8")
+            except OSError as e:
+                return jsonify({"error": f"Не удалось создать файл в {work_dir}: {e}"}), 500
+
+            run_files[sid] = script_file
             run_logs[sid] = []
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, "-u", str(tmp)],
-                    cwd=run_dir,
+                    python_run_args(script_file.name),
+                    cwd=str(work_dir),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.PIPE,
                     text=True,
-                    bufsize=1
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    env=script_run_env(),
                 )
                 run_processes[sid] = proc
 
@@ -190,13 +255,24 @@ def api_run(sid):
                                 run_logs[sid] = run_logs[sid][-2000:]
                     except Exception:
                         pass
-                    proc.wait()
-                    if sid in run_processes and run_processes[sid] is proc:
-                        del run_processes[sid]
+                    finally:
+                        try:
+                            proc.wait()
+                        except Exception:
+                            pass
+                        cleanup_run_file(sid)
+                        if sid in run_processes and run_processes[sid] is proc:
+                            del run_processes[sid]
 
                 threading.Thread(target=reader, daemon=True).start()
-                return jsonify({"ok": True, "pid": proc.pid})
+                return jsonify({
+                    "ok": True,
+                    "pid": proc.pid,
+                    "cwd": str(work_dir),
+                    "script_path": str(script_file),
+                })
             except Exception as e:
+                cleanup_run_file(sid)
                 return jsonify({"error": str(e)}), 500
     return jsonify({"error": "Не найден"}), 404
 
@@ -206,8 +282,13 @@ def api_stop(sid):
     if proc:
         try:
             proc.terminate()
+            proc.wait(timeout=3)
         except Exception:
-            pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    cleanup_run_file(sid)
     return jsonify({"ok": True})
 
 @app.route("/api/script/<sid>/input", methods=["POST"])
@@ -288,6 +369,7 @@ def api_project_new():
                 proc.terminate()
             except Exception:
                 pass
+        cleanup_run_file(sid)
     run_logs.clear()
     vault_state = default_vault_state(name)
     return jsonify({"ok": True, "name": name, "state": vault_state})

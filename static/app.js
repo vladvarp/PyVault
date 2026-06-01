@@ -15,6 +15,7 @@ let dirPickerPath    = null;
 let moveSel          = null;   // selected folder id in move modal
 let logTimer         = null;
 let logLastLen       = 0;
+let runFinishedShown = false;
 let hasUnsavedChanges = false;
 let savedProjectSnapshot = null;  // JSON baseline последнего сохранённого .pyvault
 let projectFileLabel   = null;    // имя привязанного файла
@@ -1035,10 +1036,12 @@ async function runScript() {
 
   const res = await api('/api/script/' + currentScriptId + '/run', 'POST', { run_dir: s.run_dir });
   if (res.error) { addTermLine('Ошибка: ' + res.error, 'err'); return; }
+  if (res.script_path) addTermLine(`файл: ${res.script_path}`, 'sys');
 
   btn.innerHTML = '⏹ Остановить';
   btn.classList.add('stopping');
   logLastLen = 0;
+  runFinishedShown = false;
   logTimer = setInterval(pollLogs, 250);
 }
 
@@ -1055,7 +1058,10 @@ async function pollLogs() {
     logLastLen = logs.length;
   }
   if (!data.running) {
-    addTermLine('— Завершено —', 'sys');
+    if (!runFinishedShown) {
+      runFinishedShown = true;
+      addTermLine('— Завершено —', 'sys');
+    }
     document.getElementById('run-btn').innerHTML = '▶ Запустить';
     document.getElementById('run-btn').classList.remove('stopping');
     stopLog();
