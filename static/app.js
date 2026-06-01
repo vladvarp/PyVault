@@ -101,13 +101,17 @@ function renderCanvas() {
 
   // Filter scripts
   let scripts = state.scripts.filter(s => {
-    if (currentFolder !== null && s.folder_id !== currentFolder) return false;
-    if (currentFilter === 'pinned' && !s.pinned) return false;
-    if (currentFilter === 'none' && s.folder_id) return false;
+    // When browsing a specific folder (double-clicked)
+    if (currentFolder !== null) return s.folder_id === currentFolder;
+
+    if (currentFilter === 'pinned') return s.pinned;
+    if (currentFilter === 'none')   return !s.folder_id;
     if (currentFilter.startsWith('folder:')) {
-      const fid = currentFilter.split(':')[1];
-      if (s.folder_id !== fid) return false;
+      return s.folder_id === currentFilter.split(':')[1];
     }
+    // 'all' filter at root: hide scripts that belong to a folder
+    if (currentFilter === 'all') return !s.folder_id;
+
     if (q) {
       return s.name.toLowerCase().includes(q) ||
         (s.description||'').toLowerCase().includes(q) ||
@@ -115,6 +119,15 @@ function renderCanvas() {
     }
     return true;
   });
+
+  // Apply search query on top of filter
+  if (q) {
+    scripts = scripts.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.description||'').toLowerCase().includes(q) ||
+      (s.tags||[]).some(t => t.toLowerCase().includes(q))
+    );
+  }
 
   // Sort
   if (sortMode === 'name')     scripts.sort((a,b) => a.name.localeCompare(b.name));
@@ -444,6 +457,21 @@ function addTermLine(text, cls = '') {
   out.scrollTop = out.scrollHeight;
 }
 
+async function sendInput() {
+  if (!currentScriptId) return;
+  const inp = document.getElementById('terminal-input');
+  const text = inp.value;
+  inp.value = '';
+  // Show echo in terminal
+  addTermLine('> ' + text, 'sys');
+  const res = await api('/api/script/' + currentScriptId + '/input', 'POST', { text });
+  if (res.error) addTermLine('stdin error: ' + res.error, 'err');
+}
+
+function onTerminalKey(e) {
+  if (e.key === 'Enter') sendInput();
+}
+
 async function quickRun(e, id) {
   e.stopPropagation();
   openEditor(id);
@@ -502,15 +530,40 @@ async function selectDir() {
 }
 
 // ── Compile ──────────────────────────────────────────────────────
-async function compileScript() {
+let _compileIconB64 = null;
+
+function compileScript() {
   if (!currentScriptId) return;
   const s = state.scripts.find(x => x.id === currentScriptId);
+  // Reset modal state
+  _compileIconB64 = null;
+  document.getElementById('compile-status').textContent = `Скрипт: ${s.name}`;
+  document.getElementById('compile-log').textContent = '';
+  document.getElementById('compile-close-btn').disabled = false;
+  document.getElementById('compile-icon-name').textContent = 'Не выбрана';
+  document.getElementById('compile-build-onefile').checked = true;
   openModal('modal-compile');
+}
+
+async function startCompile() {
+  if (!currentScriptId) return;
+  const s = state.scripts.find(x => x.id === currentScriptId);
+  const buildType = document.getElementById('compile-build-onefile').checked ? 'onefile' : 'onedir';
+
   document.getElementById('compile-status').textContent = `Компилирую: ${s.name}...`;
-  document.getElementById('compile-log').textContent = 'Запускаю PyInstaller...';
+  document.getElementById('compile-log').textContent = 'Запускаю PyInstaller...\nЭто может занять минуту.';
   document.getElementById('compile-close-btn').disabled = true;
+  document.getElementById('compile-start-btn').disabled = true;
+
   try {
-    const resp = await fetch('/api/compile/' + currentScriptId, { method: 'POST' });
+    const payload = { build_type: buildType };
+    if (_compileIconB64) payload.icon_b64 = _compileIconB64;
+
+    const resp = await fetch('/api/compile/' + currentScriptId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (resp.ok && resp.headers.get('Content-Disposition')) {
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
@@ -520,7 +573,8 @@ async function compileScript() {
       a.download = disp.match(/filename="?([^"]+)"?/)?.[1] || s.name;
       a.click();
       document.getElementById('compile-status').textContent = '✓ Готово! Файл скачан.';
-      document.getElementById('compile-log').textContent = 'EXE успешно создан.';
+      document.getElementById('compile-log').textContent = buildType === 'onefile'
+        ? 'EXE успешно создан.' : 'Папка упакована в ZIP.';
     } else {
       const err = await resp.json();
       document.getElementById('compile-status').textContent = '✗ Ошибка компиляции';
@@ -531,7 +585,26 @@ async function compileScript() {
     document.getElementById('compile-log').textContent = e.message;
   }
   document.getElementById('compile-close-btn').disabled = false;
+  document.getElementById('compile-start-btn').disabled = false;
 }
+
+function compileIconPick() {
+  const inp = document.getElementById('compile-icon-input');
+  inp.click();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('compile-icon-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      _compileIconB64 = ev.target.result.split(',')[1];
+      document.getElementById('compile-icon-name').textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+});
 
 // ── Deps ─────────────────────────────────────────────────────────
 async function loadDeps(id) {

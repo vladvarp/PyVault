@@ -173,6 +173,7 @@ def api_run(sid):
                     cwd=run_dir,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
                     text=True,
                     bufsize=1
                 )
@@ -205,6 +206,22 @@ def api_stop(sid):
         except Exception:
             pass
     return jsonify({"ok": True})
+
+@app.route("/api/script/<sid>/input", methods=["POST"])
+def api_input(sid):
+    """Send a line of text to the running script's stdin."""
+    text = (request.json or {}).get("text", "")
+    proc = run_processes.get(sid)
+    if proc and proc.poll() is None:
+        try:
+            proc.stdin.write(text + "\n")
+            proc.stdin.flush()
+            # Echo the input to the log so the terminal shows it
+            run_logs.setdefault(sid, []).append(text)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({"error": "Процесс не запущен"}), 400
 
 @app.route("/api/script/<sid>/logs")
 def api_logs(sid):
@@ -291,23 +308,57 @@ def api_install():
 def api_compile(sid):
     for s in vault_state["scripts"]:
         if s["id"] == sid:
+            d = request.json or {}
+            build_type = d.get("build_type", "onefile")   # "onefile" | "onedir"
+            icon_b64   = d.get("icon_b64")                # base64-encoded .ico, optional
+
             tmp_dir = Path(tempfile.gettempdir()) / f"pyvault_compile_{sid}"
             tmp_dir.mkdir(exist_ok=True)
             safe_name = re.sub(r'[^\w]', '_', s['name'])
             py_file = tmp_dir / f"{safe_name}.py"
             py_file.write_text(s["code"], encoding="utf-8")
-            r = subprocess.run(
-                [sys.executable, "-m", "PyInstaller",
-                 "--onefile", "--distpath", str(tmp_dir / "dist"),
-                 "--workpath", str(tmp_dir / "build"),
-                 "--specpath", str(tmp_dir), str(py_file)],
-                capture_output=True, text=True, timeout=300
-            )
-            exe = tmp_dir / "dist" / safe_name
-            if not exe.exists():
-                exe = tmp_dir / "dist" / (safe_name + ".exe")
-            if exe.exists():
-                return send_file(str(exe), as_attachment=True, download_name=exe.name)
+
+            cmd = [
+                sys.executable, "-m", "PyInstaller",
+                f"--{build_type}",
+                "--distpath", str(tmp_dir / "dist"),
+                "--workpath", str(tmp_dir / "build"),
+                "--specpath", str(tmp_dir),
+            ]
+
+            # Write icon file if provided
+            if icon_b64:
+                import base64
+                try:
+                    ico_path = tmp_dir / f"{safe_name}.ico"
+                    ico_path.write_bytes(base64.b64decode(icon_b64))
+                    cmd += ["--icon", str(ico_path)]
+                except Exception:
+                    pass  # ignore bad icon data
+
+            cmd.append(str(py_file))
+
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if build_type == "onefile":
+                exe = tmp_dir / "dist" / safe_name
+                if not exe.exists():
+                    exe = tmp_dir / "dist" / (safe_name + ".exe")
+                if exe.exists():
+                    return send_file(str(exe), as_attachment=True, download_name=exe.name)
+            else:
+                # onedir — zip the folder
+                import zipfile
+                dist_dir = tmp_dir / "dist" / safe_name
+                if not dist_dir.exists():
+                    dist_dir = tmp_dir / "dist" / safe_name.rstrip("_")
+                if dist_dir.exists():
+                    zip_path = tmp_dir / f"{safe_name}.zip"
+                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for f_path in dist_dir.rglob("*"):
+                            zf.write(f_path, f_path.relative_to(dist_dir.parent))
+                    return send_file(str(zip_path), as_attachment=True, download_name=zip_path.name)
+
             return jsonify({"error": "Не удалось скомпилировать",
                             "output": (r.stdout + r.stderr)[-4000:]}), 500
     return jsonify({"error": "Не найден"}), 404

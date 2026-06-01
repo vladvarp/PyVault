@@ -735,6 +735,52 @@
    .run-btn:hover { background: rgba(0,255,136,.2); box-shadow: var(--glow); }
    .run-btn.stopping { border-color: var(--accent3); background: rgba(255,0,77,.08); color: var(--accent3); }
    .run-btn.stopping:hover { background: rgba(255,0,77,.2); }
+
+   /* ── STDIN BAR ──────────────────────────────────────────────── */
+   #stdin-bar {
+     display: flex;
+     align-items: center;
+     gap: 6px;
+     padding: 5px 10px;
+     background: #010409;
+     border-top: 1px solid #1a1f2a;
+     flex-shrink: 0;
+   }
+   .stdin-prompt {
+     color: var(--accent);
+     font-size: 16px;
+     line-height: 1;
+     flex-shrink: 0;
+     opacity: .7;
+   }
+   #terminal-input {
+     flex: 1;
+     background: rgba(0,255,136,.04);
+     border: 1px solid var(--border2);
+     border-radius: 5px;
+     padding: 4px 9px;
+     color: var(--text);
+     font-family: var(--mono);
+     font-size: 12px;
+     outline: none;
+     transition: border-color .15s;
+     user-select: text;
+   }
+   #terminal-input:focus { border-color: var(--accent); }
+   #terminal-input::placeholder { color: var(--text3); }
+   .stdin-send-btn {
+     padding: 4px 10px;
+     background: rgba(0,255,136,.08);
+     border: 1px solid var(--accent);
+     border-radius: 5px;
+     color: var(--accent);
+     font-family: var(--mono);
+     font-size: 13px;
+     cursor: pointer;
+     transition: all .15s;
+     flex-shrink: 0;
+   }
+   .stdin-send-btn:hover { background: rgba(0,255,136,.2); }
    
    /* ── DEPS PANE ──────────────────────────────────────────────── */
    #deps-pane { overflow-y: auto; padding: 16px; gap: 0; }

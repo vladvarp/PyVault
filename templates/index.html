@@ -194,6 +194,12 @@
               ▶ Запустить
             </button>
           </div>
+          <div id="stdin-bar">
+            <span class="stdin-prompt">›</span>
+            <input id="terminal-input" type="text" placeholder="Ввод для скрипта (Enter)..."
+              spellcheck="false" autocomplete="off" onkeydown="onTerminalKey(event)">
+            <button class="stdin-send-btn" onclick="sendInput()">↵</button>
+          </div>
         </div>
       </div>
 
@@ -307,10 +313,38 @@
 <div class="modal-back" id="modal-compile">
   <div class="modal">
     <h2>⚙ Компиляция в EXE</h2>
-    <div id="compile-status" style="color:var(--text2);font-size:12px;margin-bottom:8px">Подготовка...</div>
+    <div id="compile-status" style="color:var(--text2);font-size:12px;margin-bottom:12px">Настройте параметры и нажмите «Компилировать»</div>
+
+    <!-- Build type -->
+    <div class="form-group">
+      <label class="form-label">Тип сборки</label>
+      <div style="display:flex;gap:12px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text)">
+          <input type="radio" name="compile-type" id="compile-build-onefile" value="onefile" checked style="accent-color:var(--accent)">
+          📄 Один EXE-файл
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text)">
+          <input type="radio" name="compile-type" id="compile-build-onedir" value="onedir" style="accent-color:var(--accent)">
+          📁 Папка (ZIP)
+        </label>
+      </div>
+    </div>
+
+    <!-- Icon -->
+    <div class="form-group">
+      <label class="form-label">Иконка (.ico)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <button class="tb-btn" onclick="compileIconPick()" style="padding:4px 10px;font-size:11px">📂 Выбрать .ico</button>
+        <span id="compile-icon-name" style="font-size:11px;color:var(--text3)">Не выбрана</span>
+        <input type="file" id="compile-icon-input" accept=".ico" style="display:none">
+      </div>
+    </div>
+
     <div class="compile-log" id="compile-log"></div>
+
     <div class="modal-actions" style="margin-top:14px">
-      <button class="btn-ok" id="compile-close-btn" onclick="closeModal('modal-compile')" disabled>Закрыть</button>
+      <button class="btn-cancel" id="compile-close-btn" onclick="closeModal('modal-compile')">Закрыть</button>
+      <button class="btn-ok" id="compile-start-btn" onclick="startCompile()">⚙ Компилировать</button>
     </div>
   </div>
 </div>
