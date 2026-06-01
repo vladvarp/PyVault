@@ -6,7 +6,7 @@ PyVault — сервер
 Откройте: http://localhost:7332
 """
 
-import os, sys, json, ast, subprocess, threading, io, re, time, hashlib
+import os, sys, json, ast, subprocess, threading, io, re, time, hashlib, tempfile
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, send_file
@@ -164,7 +164,7 @@ def api_run(sid):
     for s in vault_state["scripts"]:
         if s["id"] == sid:
             run_dir = d.get("run_dir") or s.get("run_dir") or str(Path.home())
-            tmp = Path(f"/tmp/pyvault_{sid}.py")
+            tmp = Path(tempfile.gettempdir()) / f"pyvault_{sid}.py"
             tmp.write_text(s["code"], encoding="utf-8")
             run_logs[sid] = []
             try:
@@ -291,7 +291,7 @@ def api_install():
 def api_compile(sid):
     for s in vault_state["scripts"]:
         if s["id"] == sid:
-            tmp_dir = Path(f"/tmp/pyvault_compile_{sid}")
+            tmp_dir = Path(tempfile.gettempdir()) / f"pyvault_compile_{sid}"
             tmp_dir.mkdir(exist_ok=True)
             safe_name = re.sub(r'[^\w]', '_', s['name'])
             py_file = tmp_dir / f"{safe_name}.py"
