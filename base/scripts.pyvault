@@ -106,6 +106,102 @@
       "pinned": false,
       "run_dir": "C:\\Users\\user",
       "tags": []
+    },
+    {
+      "code": "\"\"\"\nPython Node — Владелец Xpresso\n\nНазначение:\nВыдаёт объект, на котором расположен тег Xpresso.\n\nИспользование:\n— Поместите Xpresso на нужный объект.\n— Подключите выход Object к другим нодам.\n\nОсобенности:\n— Не требует входных портов.\n— Всегда возвращает владельца текущего Xpresso-тега.\n— Подходит для универсальных процедурных сетапов.\n\nТребуемые порты:\nВыход:\n    Object — Object Link\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Object\n\n    tag = op.GetNodeMaster().GetOwner()\n    if tag is None:\n        Object = None\n        return\n\n    Object = tag.GetObject()",
+      "color": "rgb(157, 78, 221)",
+      "created": "2026-06-01T07:01:55.644827",
+      "description": "Выдаёт объект, на котором расположен тег Xpresso.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "bdffae0a",
+      "modified": "2026-06-01T07:01:55.644832",
+      "name": "Владелец",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Общее"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Размеры объекта (Bounding Box)\n\nНазначение:\nПринимает объект через входной порт Object и выводит его габариты\nпо осям X, Y, Z на основе локального bounding box.\n\nИспользование:\n— Подключите объект к порту Object.\n— Считывайте размеры с выходов X, Y, Z.\n\nОсобенности:\n— Быстрая работа.\n— Универсально для большинства объектов Cinema 4D.\n— Возвращает локальные размеры (без учёта глобального масштаба и мирового поворота).\n\nТребуемые порты:\nВход:\n    Object — Object Link\nВыход:\n    X — Real\n    Y — Real\n    Z — Real\n\"\"\"\n\nimport c4d\n\ndef main():\n    global X, Y, Z\n\n    if Object is None:\n        X = 0.0\n        Y = 0.0\n        Z = 0.0\n        return\n\n    size = Object.GetRad() * 2.0\n\n    X = size.x\n    Y = size.y\n    Z = size.z",
+      "color": "#9d4edd",
+      "created": "2026-06-01T07:04:58.007434",
+      "description": "Принимает объект через входной порт Object и выводит его габариты по осям X, Y, Z на основе локального bounding box.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "9041ad33",
+      "modified": "2026-06-01T07:04:58.007441",
+      "name": "Размеры объекта",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Общее"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Switch Link (1–3)\n\nНазначение:\nПереключает ссылку между тремя входами по значению Switch.\n\nЛогика:\n— Если Switch = 1 → Output = Input1\n— Если Switch = 2 → Output = Input2\n— Если Switch = 3 → Output = Input3\n— В остальных случаях Output = None\n\nИспользование:\n— Подайте число 1, 2 или 3 в порт Switch.\n— Подключите нужные объекты к Input1 / Input2 / Input3.\n— Считывайте выбранную ссылку из Output.\n\nОсобенности:\n— Работает с любым типом Link.\n— Безопасно обрабатывает пустые входы.\n— Подходит для процедурных переключателей в Xpresso.\n\nТребуемые порты:\n\nВход:\n    Switch — Real\n    Input1 — Link\n    Input2 — Link\n    Input3 — Link\n\nВыход:\n    Output — Link\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Output\n\n    try:\n        idx = int(round(Switch))\n    except:\n        Output = None\n        return\n\n    if idx == 1:\n        Output = Input1\n    elif idx == 2:\n        Output = Input2\n    elif idx == 3:\n        Output = Input3\n    else:\n        Output = None",
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T08:04:29.203919",
+      "description": "Переключает ссылку между тремя входами по значению Switch.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "35d86f9e",
+      "modified": "2026-06-01T08:04:29.203926",
+      "name": "Переключатель (Связь)",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Логика"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Switch (String)\n\nНазначение:\nПереключает ссылку между тремя входами по значению Switch.\n\nЛогика:\n— Если Switch = 1 → Output = Input1\n— Если Switch = 2 → Output = Input2\n— Если Switch = 3 → Output = Input3\n— В остальных случаях Output = None\n\nИспользование:\n— Подайте число 1, 2 или 3 в порт Switch.\n— Подключите нужные объекты к Input1 / Input2 / Input3.\n— Считывайте выбранную ссылку из Output.\n\nОсобенности:\n— Работает с любым типом String.\n— Безопасно обрабатывает пустые входы.\n— Подходит для процедурных переключателей в Xpresso.\n\nТребуемые порты:\n\nВход:\n    Switch — Real\n    Input1 — String\n    Input2 — String\n    Input3 — String\n\nВыход:\n    Output — String\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Output\n\n    try:\n        idx = int(round(Switch))\n    except:\n        Output = \"\"\n        return\n\n    if idx == 1:\n        Output = Input1\n    elif idx == 2:\n        Output = Input2\n    elif idx == 3:\n        Output = Input3\n    else:\n        Output = \"\"",
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T08:07:12.544632",
+      "description": "Переключает ссылку между тремя входами по значению Switch.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "8b8a8dee",
+      "modified": "2026-06-01T08:07:12.544638",
+      "name": "Переключатель (Строка)",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Логика"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Switch (Include/Exclude)\n\nНазначение:\nПереключает ссылку между тремя входами по значению Switch.\n\nЛогика:\n— Если Switch = 1 → Output = Input1\n— Если Switch = 2 → Output = Input2\n— Если Switch = 3 → Output = Input3\n— В остальных случаях Output = None\n\nИспользование:\n— Подайте число 1, 2 или 3 в порт Switch.\n— Подключите нужные объекты к Input1 / Input2 / Input3.\n— Считывайте выбранную ссылку из Output.\n\nОсобенности:\n— Работает с любым типом Include/Exclude.\n— Безопасно обрабатывает пустые входы.\n— Подходит для процедурных переключателей в Xpresso.\n\nТребуемые порты:\n\nВход:\n    Switch — Real\n    Input1 — Include/Exclude\n    Input2 — Include/Exclude\n    Input3 — Include/Exclude\n\nВыход:\n    Output — Include/Exclude\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Output\n\n    try:\n        idx = int(round(Switch))\n    except:\n        Output = c4d.InExcludeData()\n        return\n\n    if idx == 1:\n        Output = Input1\n    elif idx == 2:\n        Output = Input2\n    elif idx == 3:\n        Output = Input3\n    else:\n        Output = c4d.InExcludeData()",
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T08:08:06.201624",
+      "description": "Переключает ссылку между тремя входами по значению Switch.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "64dccf4d",
+      "modified": "2026-06-01T08:08:06.201630",
+      "name": "Переключатель (уч./искл.)",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Логика"
+      ]
+    },
+    {
+      "code": "\"\"\"\nPython Node — Switch (Real)\n\nНазначение:\nПереключает ссылку между тремя входами по значению Switch.\n\nЛогика:\n— Если Switch = 1 → Output = Input1\n— Если Switch = 2 → Output = Input2\n— Если Switch = 3 → Output = Input3\n— В остальных случаях Output = None\n\nИспользование:\n— Подайте число 1, 2 или 3 в порт Switch.\n— Подключите нужные объекты к Input1 / Input2 / Input3.\n— Считывайте выбранную ссылку из Output.\n\nОсобенности:\n— Работает с любым типом Real.\n— Безопасно обрабатывает пустые входы.\n— Подходит для процедурных переключателей в Xpresso.\n\nТребуемые порты:\n\nВход:\n    Switch — Real\n    Input1 — Real\n    Input2 — Real\n    Input3 — Real\n\nВыход:\n    Output — Real\n\"\"\"\n\nimport c4d\n\ndef main():\n    global Output\n\n    try:\n        idx = int(round(Switch))\n    except:\n        Output = 0.0\n        return\n\n    if idx == 1:\n        Output = Input1\n    elif idx == 2:\n        Output = Input2\n    elif idx == 3:\n        Output = Input3\n    else:\n        Output = 0.0",
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T08:08:49.700395",
+      "description": "Переключает ссылку между тремя входами по значению Switch.",
+      "folder_id": "c9b5bb80",
+      "icon": "⚙",
+      "id": "c4fc9ace",
+      "modified": "2026-06-01T08:08:49.700401",
+      "name": "Переключатель (Вещественное)",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user",
+      "tags": [
+        "XPresso - Логика"
+      ]
     }
   ],
   "settings": {
