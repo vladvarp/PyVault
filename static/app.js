@@ -10,6 +10,7 @@ let currentFilter    = 'all';  // all | pinned | folder:{id}
 let currentView      = 'grid'; // grid | list
 let sortMode         = 'modified';
 let ctxTargetId      = null;
+let ctxFolderId      = null;
 let dirPickerPath    = null;
 let moveSel          = null;   // selected folder id in move modal
 let logTimer         = null;
@@ -133,23 +134,44 @@ function recentHandleKey(id) {
   return 'recent-' + id;
 }
 
+function stableRecentId(fileName) {
+  return (fileName || 'project').toLowerCase().replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+/** Один файл = одна запись (lastModified при сохранении меняется — не используем). */
+function dedupeRecentMeta(list) {
+  const map = new Map();
+  for (const item of list) {
+    const fileName = item.fileName || item.id;
+    const key = fileName.toLowerCase();
+    const id = stableRecentId(fileName);
+    const normalized = { ...item, id, fileName };
+    const prev = map.get(key);
+    if (!prev || new Date(normalized.openedAt) > new Date(prev.openedAt)) {
+      map.set(key, { ...normalized, hasHandle: normalized.hasHandle || prev?.hasHandle });
+    } else if (normalized.hasHandle) {
+      map.set(key, { ...prev, hasHandle: true, openedAt: normalized.openedAt });
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.openedAt) - new Date(a.openedAt)
+  );
+}
+
 function loadRecentMeta() {
   try {
     const raw = localStorage.getItem(RECENT_LIST_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const list = raw ? JSON.parse(raw) : [];
+    return dedupeRecentMeta(list);
   } catch (_) {
     return [];
   }
 }
 
 function saveRecentMeta(list) {
-  localStorage.setItem(RECENT_LIST_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
-}
-
-async function recentEntryId(handle, file) {
-  const f = file || await handle.getFile();
-  const base = `${handle.name}|${f.lastModified}|${f.size}`;
-  return base.replace(/[^a-zA-Z0-9|._-]/g, '_');
+  const deduped = dedupeRecentMeta(list).slice(0, RECENT_MAX);
+  localStorage.setItem(RECENT_LIST_KEY, JSON.stringify(deduped));
+  return deduped;
 }
 
 async function persistRecentHandle(id, handle) {
@@ -193,38 +215,49 @@ async function deleteStoredRecentHandle(id) {
 
 async function addToRecentProjects(handle, projectName) {
   if (!handle) return;
-  const file = await handle.getFile();
-  const id = await recentEntryId(handle, file);
+  const fileName = handle.name;
+  const id = stableRecentId(fileName);
+  const prevList = loadRecentMeta();
+  for (const old of prevList) {
+    if (old.fileName.toLowerCase() === fileName.toLowerCase() && old.id !== id) {
+      await deleteStoredRecentHandle(old.id);
+    }
+  }
   const entry = {
     id,
-    fileName: handle.name,
-    projectName: projectName || handle.name.replace(/\.(pyvault|json)$/i, ''),
+    fileName,
+    projectName: projectName || fileName.replace(/\.(pyvault|json)$/i, ''),
     openedAt: new Date().toISOString(),
     hasHandle: true,
   };
-  const list = loadRecentMeta().filter(x => x.id !== id);
+  const list = prevList.filter(x => x.fileName.toLowerCase() !== fileName.toLowerCase());
   list.unshift(entry);
   saveRecentMeta(list);
   await persistRecentHandle(id, handle);
 }
 
 function addToRecentProjectsMeta(file, projectName) {
-  const id = `inp-${file.name}-${file.lastModified}-${file.size}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const fileName = file.name;
+  const id = 'inp_' + stableRecentId(fileName);
   const entry = {
     id,
-    fileName: file.name,
-    projectName: projectName || file.name,
+    fileName,
+    projectName: projectName || fileName,
     openedAt: new Date().toISOString(),
     hasHandle: false,
   };
-  const list = loadRecentMeta().filter(x => x.id !== id);
+  const list = loadRecentMeta().filter(
+    x => x.fileName.toLowerCase() !== fileName.toLowerCase()
+  );
   list.unshift(entry);
   saveRecentMeta(list);
 }
 
 async function removeFromRecent(id) {
+  const meta = loadRecentMeta().find(x => x.id === id);
   saveRecentMeta(loadRecentMeta().filter(x => x.id !== id));
   await deleteStoredRecentHandle(id);
+  if (meta?.fileName) await deleteStoredRecentHandle(stableRecentId(meta.fileName));
   renderRecentProjectsModal();
   toast('Удалено из списка');
 }
@@ -275,7 +308,10 @@ async function openRecentProject(id) {
     return;
   }
 
-  const handle = await getStoredRecentHandle(id);
+  let handle = await getStoredRecentHandle(id);
+  if (!handle && meta.fileName) {
+    handle = await getStoredRecentHandle(stableRecentId(meta.fileName));
+  }
   if (!handle || typeof handle.queryPermission !== 'function') {
     toast('Файл недоступен — уберите из списка и откройте снова', 'err');
     return;
@@ -445,6 +481,8 @@ async function init() {
   document.getElementById('import-input').addEventListener('change', importProject);
   document.addEventListener('click', hideCtx);
   document.addEventListener('keydown', onGlobalKey);
+
+  saveRecentMeta(loadRecentMeta());
 
   const recentList = document.getElementById('recent-list');
   if (recentList) {
@@ -1576,19 +1614,97 @@ async function confirmMove() {
 }
 
 // ── Context Menus ────────────────────────────────────────────────
+function positionCtxMenu(menu, e) {
+  const w = menu.offsetWidth || 200;
+  const h = menu.offsetHeight || 280;
+  menu.style.left = Math.min(e.clientX, window.innerWidth - w - 8) + 'px';
+  menu.style.top  = Math.min(e.clientY, window.innerHeight - h - 8) + 'px';
+}
+
+function hideCtx() {
+  document.querySelectorAll('.ctx-menu.open').forEach(m => m.classList.remove('open'));
+}
+
 function showScriptCtx(e, id) {
   e.preventDefault();
   e.stopPropagation();
+  hideCtx();
   ctxTargetId = id;
   const m = document.getElementById('ctx-menu');
-  m.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
-  m.style.top  = Math.min(e.clientY, window.innerHeight - 280) + 'px';
   m.classList.add('open');
+  positionCtxMenu(m, e);
 }
 
-async function showFolderCtx(e, id) {
+function showFolderCtx(e, id) {
   e.preventDefault();
   e.stopPropagation();
+  hideCtx();
+  ctxFolderId = id;
+  const m = document.getElementById('ctx-menu-folder');
+  m.classList.add('open');
+  positionCtxMenu(m, e);
+}
+
+function folderCtx(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+  showFolderCtx(e, id);
+}
+
+function onCanvasAreaContextMenu(e) {
+  if (e.target.closest('.script-icon, .folder-icon, .list-item, .ctx-menu')) return;
+  if (e.target.closest('#toolbar, .search-wrap, .view-btn, .sort-btn, #search-box')) return;
+  onCanvasContextMenu(e);
+}
+
+function onCanvasContextMenu(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  hideCtx();
+  const m = document.getElementById('ctx-menu-canvas');
+  const goRootItem = document.getElementById('canvas-ctx-goroot');
+  if (goRootItem) goRootItem.classList.toggle('hidden', !currentFolder);
+  m.classList.add('open');
+  positionCtxMenu(m, e);
+}
+
+function folderCtxOpen() {
+  hideCtx();
+  if (ctxFolderId) openFolder(ctxFolderId);
+}
+
+function openRenameFolderModal() {
+  hideCtx();
+  const f = state.folders.find(x => x.id === ctxFolderId);
+  if (!f) return;
+  document.getElementById('rename-folder-name').value = f.name;
+  openModal('modal-rename-folder');
+  setTimeout(() => {
+    const inp = document.getElementById('rename-folder-name');
+    inp.focus();
+    inp.select();
+  }, 120);
+}
+
+async function confirmRenameFolder() {
+  const name = document.getElementById('rename-folder-name').value.trim();
+  if (!name) {
+    toast('Введите название папки', 'err');
+    return;
+  }
+  if (!ctxFolderId) return;
+  await api('/api/folder/' + ctxFolderId, 'PUT', { name });
+  const f = state.folders.find(x => x.id === ctxFolderId);
+  if (f) f.name = name;
+  closeModal('modal-rename-folder');
+  render();
+  touchProject();
+  toast('✓ Папка переименована');
+}
+
+async function folderCtxDelete() {
+  hideCtx();
+  const id = ctxFolderId;
   const f = state.folders.find(x => x.id === id);
   const ok = await showConfirm({
     title: 'Удалить папку?',
@@ -1606,13 +1722,12 @@ async function showFolderCtx(e, id) {
   toast('Папка удалена');
 }
 
-function folderCtx(e, id) {
-  e.preventDefault();
-  e.stopPropagation();
-  showFolderCtx(e, id);
-}
-
-function hideCtx() { document.getElementById('ctx-menu').classList.remove('open'); }
+function canvasCtxNewScript() { hideCtx(); openNewScript(); }
+function canvasCtxNewFolder()  { hideCtx(); openNewFolder(); }
+function canvasCtxOpenProject() { hideCtx(); openProjectsModal(); }
+function canvasCtxSaveProject() { hideCtx(); exportProject(); }
+function canvasCtxGoRoot()     { hideCtx(); goRoot(); }
+function canvasCtxRefresh()    { hideCtx(); render(); toast('Обновлено', 'info'); }
 
 // Context menu actions
 function ctxEdit()      { hideCtx(); openEditor(ctxTargetId); }
@@ -1882,6 +1997,7 @@ function onGlobalKey(e) {
     hideCtx();
     if (_confirmResolver) { closeConfirm(false); return; }
     document.querySelectorAll('.modal-back.open').forEach(m => m.classList.remove('open'));
+    hideCtx();
     if (!document.getElementById('editor-overlay').classList.contains('hidden') &&
         !document.querySelector('.modal-back.open')) {
       closeEditor();

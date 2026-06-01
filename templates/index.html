@@ -96,7 +96,7 @@
   </div>
 
   <!-- ── CANVAS AREA ───────────────────────────── -->
-  <div id="canvas-wrap">
+  <div id="canvas-wrap" oncontextmenu="onCanvasAreaContextMenu(event)">
 
     <!-- Toolbar -->
     <div id="toolbar">
@@ -270,6 +270,22 @@
   </div>
 </div>
 
+<!-- Rename Folder -->
+<div class="modal-back" id="modal-rename-folder">
+  <div class="modal">
+    <h2>✏️ Переименовать папку</h2>
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input class="form-input" id="rename-folder-name" placeholder="Имя папки" spellcheck="false"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();confirmRenameFolder();}">
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-cancel" onclick="closeModal('modal-rename-folder')">Отмена</button>
+      <button type="button" class="btn-ok" onclick="confirmRenameFolder()">✓ Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <!-- New Folder -->
 <div class="modal-back" id="modal-new-folder">
   <div class="modal">
@@ -417,7 +433,7 @@
 <!-- ╔══════════════════════════════════════╗ -->
 <!-- ║         CONTEXT MENU                ║ -->
 <!-- ╚══════════════════════════════════════╝ -->
-<div id="ctx-menu">
+<div id="ctx-menu" class="ctx-menu">
   <div class="ctx-item" onclick="ctxEdit()">✏️ Открыть редактор</div>
   <div class="ctx-item" onclick="ctxRun()">▶ Запустить</div>
   <div class="ctx-item" onclick="ctxAnalyze()">📦 Зависимости</div>
@@ -428,7 +444,25 @@
   <div class="ctx-sep"></div>
   <div class="ctx-item" onclick="ctxCompile()">⚙ Компилировать в EXE</div>
   <div class="ctx-sep"></div>
-  <div class="ctx-item danger" onclick="ctxDelete()">🗑 Удалить</div>
+  <div class="ctx-item danger" onclick="ctxDelete()">🗑 Удалить скрипт</div>
+</div>
+
+<div id="ctx-menu-folder" class="ctx-menu">
+  <div class="ctx-item" onclick="folderCtxOpen()">📂 Открыть</div>
+  <div class="ctx-item" onclick="openRenameFolderModal()">✏️ Переименовать</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" onclick="folderCtxDelete()">🗑 Удалить папку</div>
+</div>
+
+<div id="ctx-menu-canvas" class="ctx-menu">
+  <div class="ctx-item" onclick="canvasCtxNewScript()">＋ Новый скрипт</div>
+  <div class="ctx-item" onclick="canvasCtxNewFolder()">📁 Новая папка</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="canvasCtxOpenProject()">📂 Открыть проект…</div>
+  <div class="ctx-item" onclick="canvasCtxSaveProject()">💾 Сохранить проект</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="canvas-ctx-goroot" onclick="canvasCtxGoRoot()">🏠 Все файлы</div>
+  <div class="ctx-item" onclick="canvasCtxRefresh()">↻ Обновить</div>
 </div>
 
 <!-- ╔══════════════════════════════════════╗ -->
