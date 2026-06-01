@@ -675,8 +675,6 @@ async function init() {
   loadTrash();
   initSidebarResize();
 
-  state = await api('/api/state');
-  document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
   document.getElementById('proj-name').addEventListener('input', e => {
     state.project_name = e.target.value;
     api('/api/state', 'POST', { project_name: e.target.value });
@@ -712,25 +710,33 @@ async function init() {
     }
   });
 
-  const restoredHandle = await restoreProjectFileHandle();
-  if (restoredHandle) {
-    _projectFileHandle = restoredHandle;
-    projectFileLabel = restoredHandle.name;
-    updateProjectFileLabel();
-    await addToRecentProjects(restoredHandle, state.project_name);
+  // Restore saved view mode
+  const savedView = localStorage.getItem('pyvault-view');
+  if (savedView && ['grid','cards','tiles','compact','list'].includes(savedView)) {
+    currentView = savedView;
   }
-
-  // Restore view button state
   const vbtn = document.getElementById('vbtn-' + currentView);
   if (vbtn) {
     document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
     vbtn.classList.add('active');
   }
 
+  // Always start fresh — empty project, no file binding
+  const freshRes = await api('/api/project/new', 'POST', { project_name: 'Мой Проект' });
+  state = freshRes.state || await api('/api/state');
+  _projectFileHandle = null;
+  await clearPersistedProjectFileHandle();
+  projectFileLabel = null;
+  document.getElementById('proj-name').value = state.project_name || 'Мой Проект';
+  updateProjectFileLabel();
+
   setProjectBaseline(null);
   render();
   setInterval(pollRunning, 1500);
   setInterval(syncStateFromServer, 2000);
+
+  // Always show recent projects modal on startup
+  openProjectsModal();
 }
 
 // ── API helper ───────────────────────────────────────────────────
@@ -2585,6 +2591,7 @@ async function exportProject() {
 // ── View / Sort ──────────────────────────────────────────────────
 function setView(v, btn) {
   currentView = v;
+  localStorage.setItem('pyvault-view', v);
   document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
   if (btn) btn.classList.add('active');
   else {
