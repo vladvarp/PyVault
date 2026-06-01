@@ -38,6 +38,22 @@
       "id": "95932936",
       "name": "Cinema 4D",
       "parent_id": null
+    },
+    {
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T09:23:41.731200",
+      "icon": "🎒",
+      "id": "5677afff",
+      "name": "Общее",
+      "parent_id": "c9b5bb80"
+    },
+    {
+      "color": "rgb(255, 107, 53)",
+      "created": "2026-06-01T09:25:30.477100",
+      "icon": "🔬",
+      "id": "1ab19101",
+      "name": "Логика",
+      "parent_id": "c9b5bb80"
     }
   ],
   "scripts": [
@@ -61,12 +77,12 @@
       "code": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\nimport os\nimport sys\nimport shutil\nimport time\nimport threading\nfrom pathlib import Path\n\n# ── ANSI цвета и стили ────────────────────────────────────────────────────────\nR  = \"\\033[0m\"          # reset\nB  = \"\\033[1m\"          # bold\nDIM= \"\\033[2m\"          # dim\nIT = \"\\033[3m\"          # italic\n\nC0 = \"\\033[38;5;237m\"  # dark gray  (borders)\nC1 = \"\\033[38;5;255m\"  # white      (text)\nC2 = \"\\033[38;5;75m\"   # sky blue   (accent)\nC3 = \"\\033[38;5;82m\"   # green      (success)\nC4 = \"\\033[38;5;196m\"  # red        (error / warning)\nC5 = \"\\033[38;5;220m\"  # gold       (stats)\nC6 = \"\\033[38;5;243m\"  # mid gray   (secondary)\nC7 = \"\\033[38;5;111m\"  # periwinkle (moved files)\nBG = \"\\033[48;5;234m\"  # very dark bg\n\n# ── Вспомогательные функции отрисовки ─────────────────────────────────────────\n\ndef cls():\n    os.system(\"cls\" if os.name == \"nt\" else \"clear\")\n\ndef W():\n    \"\"\"Ширина терминала, минимум 60.\"\"\"\n    try:\n        return max(os.get_terminal_size().columns, 60)\n    except Exception:\n        return 80\n\ndef hline(char=\"─\", col=C0):\n    print(f\"{col}{char * W()}{R}\")\n\ndef box_top(col=C0):\n    print(f\"{col}╔{'═' * (W()-2)}╗{R}\")\n\ndef box_bot(col=C0):\n    print(f\"{col}╚{'═' * (W()-2)}╝{R}\")\n\ndef box_mid(col=C0):\n    print(f\"{col}╠{'═' * (W()-2)}╣{R}\")\n\ndef box_row(text=\"\", col=C0, tc=C1):\n    inner = W() - 4\n    # strip ANSI for length calculation\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", text)\n    pad = inner - len(plain)\n    print(f\"{col}║ {R}{tc}{text}{' ' * max(pad, 0)}{col} ║{R}\")\n\ndef box_row_center(text=\"\", col=C0, tc=C1):\n    inner = W() - 4\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", text)\n    total_pad = inner - len(plain)\n    lp = total_pad // 2\n    rp = total_pad - lp\n    print(f\"{col}║{' ' * (lp+1)}{R}{tc}{text}{' ' * (rp+1)}{col}║{R}\")\n\ndef print_logo():\n    logo = [\n        f\"{C2}{B}  ███████╗██╗      █████╗ ████████╗████████╗███████╗███╗   ██╗{R}\",\n        f\"{C2}{B}  ██╔════╝██║     ██╔══██╗╚══██╔══╝╚══██╔══╝██╔════╝████╗  ██║{R}\",\n        f\"{C2}{B}  █████╗  ██║     ███████║   ██║      ██║   █████╗  ██╔██╗ ██║{R}\",\n        f\"{C2}{B}  ██╔══╝  ██║     ██╔══██║   ██║      ██║   ██╔══╝  ██║╚██╗██║{R}\",\n        f\"{C2}{B}  ██║     ███████╗██║  ██║   ██║      ██║   ███████╗██║ ╚████║{R}\",\n        f\"{C2}{B}  ╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═══╝{R}\",\n    ]\n    w = W()\n    for line in logo:\n        import re\n        plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", line)\n        pad = (w - len(plain)) // 2\n        print(\" \" * max(pad, 0) + line)\n\n# ── Спиннер ───────────────────────────────────────────────────────────────────\n\nclass Spinner:\n    FRAMES = [\"⠋\",\"⠙\",\"⠹\",\"⠸\",\"⠼\",\"⠴\",\"⠦\",\"⠧\",\"⠇\",\"⠏\"]\n    def __init__(self, msg=\"Работаю...\"):\n        self.msg = msg\n        self._stop = threading.Event()\n        self._t = threading.Thread(target=self._spin, daemon=True)\n\n    def _spin(self):\n        i = 0\n        while not self._stop.is_set():\n            frame = self.FRAMES[i % len(self.FRAMES)]\n            print(f\"\\r  {C2}{frame}{R} {C1}{self.msg}{R}\", end=\"\", flush=True)\n            time.sleep(0.08)\n            i += 1\n\n    def __enter__(self):\n        self._t.start()\n        return self\n\n    def __exit__(self, *_):\n        self._stop.set()\n        self._t.join()\n        print(\"\\r\" + \" \" * (len(self.msg) + 10) + \"\\r\", end=\"\")\n\n# ── Прогресс-бар ──────────────────────────────────────────────────────────────\n\ndef progress_bar(current, total, width=None):\n    if width is None:\n        width = W() - 20\n    pct = current / total if total else 1\n    filled = int(width * pct)\n    bar = f\"{C3}{'█' * filled}{C6}{'░' * (width - filled)}{R}\"\n    return f\"  [{bar}] {C5}{B}{int(pct*100):3d}%{R}\"\n\n# ── Логика переноса файлов ─────────────────────────────────────────────────────\n\ndef collect_nested_files(root: Path):\n    \"\"\"Вернуть все файлы глубже первого уровня.\"\"\"\n    files = []\n    for p in root.rglob(\"*\"):\n        if p.is_file() and p.parent != root:\n            files.append(p)\n    return files\n\ndef safe_dest(root: Path, src: Path) -> Path:\n    \"\"\"Если файл с таким именем уже есть — добавляем суффикс.\"\"\"\n    dest = root / src.name\n    if not dest.exists():\n        return dest\n    stem, suffix = src.stem, src.suffix\n    i = 1\n    while True:\n        candidate = root / f\"{stem}_{i}{suffix}\"\n        if not candidate.exists():\n            return candidate\n        i += 1\n\ndef remove_empty_dirs(root: Path):\n    \"\"\"Удалить все пустые папки (снизу вверх).\"\"\"\n    removed = []\n    for dirpath in sorted(root.rglob(\"*\"), key=lambda p: -len(p.parts)):\n        if dirpath.is_dir() and dirpath != root:\n            try:\n                dirpath.rmdir()          # упадёт, если не пустая\n                removed.append(dirpath)\n            except OSError:\n                pass\n    return removed\n\n# ── Главный экран ──────────────────────────────────────────────────────────────\n\ndef draw_header():\n    cls()\n    print()\n    print_logo()\n    print()\n    w = W()\n    subtitle = \"✦  File Flattener  ✦  Перенос вложенных файлов в корень  ✦\"\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", subtitle)\n    pad = (w - len(plain)) // 2\n    print(\" \" * max(pad, 0) + f\"{C6}{IT}{subtitle}{R}\")\n    print()\n    hline(\"─\", C0)\n\ndef draw_summary_box(root, nested_files):\n    print()\n    box_top()\n    box_row(f\"{B}Рабочая директория:{R}  {C5}{root}{R}\")\n    box_mid()\n    box_row(f\"{C6}Найдено вложенных файлов:{R}  {C2}{B}{len(nested_files)}{R}\")\n    if nested_files:\n        # show up to 5 examples\n        for f in nested_files[:5]:\n            rel = f.relative_to(root)\n            box_row(f\"  {C6}└─{R} {DIM}{rel}{R}\")\n        if len(nested_files) > 5:\n            box_row(f\"  {C6}   … и ещё {len(nested_files)-5} файл(ов){R}\")\n    box_bot()\n    print()\n\ndef ask_confirm() -> bool:\n    print(f\"  {C5}{B}Продолжить?{R}  [{C3}Y{R}/{C4}n{R}]  \", end=\"\", flush=True)\n    try:\n        ans = input().strip().lower()\n    except (EOFError, KeyboardInterrupt):\n        ans = \"n\"\n    return ans in (\"\", \"y\", \"д\", \"да\", \"yes\")\n\ndef draw_results(root, moved, renamed, failed, removed_dirs):\n    print()\n    box_top(C3)\n    box_row_center(f\"{C3}{B}✔  Готово!{R}\", C3)\n    box_mid(C3)\n    box_row(f\"  {C3}✦{R}  Перенесено файлов:    {C5}{B}{moved}{R}\", C3)\n    box_row(f\"  {C5}✦{R}  Переименовано (дубли): {C5}{B}{renamed}{R}\", C3)\n    box_row(f\"  {C4}✦{R}  Ошибок:               {C4}{B}{failed}{R}\", C3)\n    box_row(f\"  {C6}✦{R}  Удалено папок:        {C6}{B}{len(removed_dirs)}{R}\", C3)\n    box_bot(C3)\n\n# ── Точка входа ───────────────────────────────────────────────────────────────\n\ndef main():\n    # Директория = папка скрипта\n    root = Path(__file__).parent.resolve()\n\n    draw_header()\n\n    # Сбор файлов\n    with Spinner(\"Сканирую директорию...\"):\n        nested = collect_nested_files(root)\n\n    if not nested:\n        print()\n        box_top(C5)\n        box_row_center(f\"{C5}{B}ℹ  Вложенных файлов не найдено. Всё уже в корне!{R}\", C5)\n        box_bot(C5)\n        print()\n        _pause()\n        return\n\n    draw_summary_box(root, nested)\n\n    if not ask_confirm():\n        print(f\"\\n  {C4}Отменено.{R}\\n\")\n        _pause()\n        return\n\n    print()\n    total = len(nested)\n    moved = renamed = failed = 0\n    log_lines = []\n\n    for i, src in enumerate(nested, 1):\n        # Прогресс\n        print(progress_bar(i - 1, total), end=\"\\r\", flush=True)\n\n        dest = safe_dest(root, src)\n        is_rename = dest.name != src.name\n        try:\n            shutil.move(str(src), str(dest))\n            if is_rename:\n                renamed += 1\n                status = f\"{C5}↻ переименован{R}\"\n            else:\n                status = f\"{C3}✔ перенесён{R}\"\n            moved += 1\n            tag = f\"{C7}{dest.name}{R}\"\n        except Exception as e:\n            failed += 1\n            status = f\"{C4}✘ ошибка: {e}{R}\"\n            tag = f\"{C4}{src.name}{R}\"\n\n        log_lines.append((tag, status))\n\n    # Финальная полоска\n    print(progress_bar(total, total))\n    time.sleep(0.3)\n\n    # Удаление пустых папок\n    print(f\"\\n  {C6}Удаляю пустые папки...{R}\")\n    removed_dirs = remove_empty_dirs(root)\n\n    # Лог (последние 10)\n    print()\n    hline()\n    print(f\"  {B}{C1}Журнал операций:{R}\")\n    for tag, status in log_lines[-10:]:\n        print(f\"  {C6}•{R} {tag}  {status}\")\n    if len(log_lines) > 10:\n        print(f\"  {C6}… показаны последние 10 из {len(log_lines)}{R}\")\n    hline()\n\n    draw_results(root, moved, renamed, failed, removed_dirs)\n\n    _pause()\n\n\ndef _pause():\n    print(f\"\\n  {DIM}Нажмите Enter для выхода…{R}\", end=\"\", flush=True)\n    try:\n        input()\n    except (EOFError, KeyboardInterrupt):\n        pass\n\n\nif __name__ == \"__main__\":\n    # Убеждаемся, что окно не закроется мгновенно при двойном клике\n    try:\n        main()\n    except Exception as exc:\n        print(f\"\\n  {C4}{B}Критическая ошибка:{R} {exc}\\n\")\n        _pause()",
       "color": "rgb(255, 215, 0)",
       "created": "2026-06-01T05:20:10.139000",
-      "description": "Вытаскивает все вложенные файлы в корневую папку, и удаляет пустые папки",
+      "description": "Перенос вложенных файлов в корень ",
       "folder_id": "c997c815",
       "icon": "🤖",
       "id": "5fb6c103",
       "modified": "2026-06-01T05:20:10.139005",
-      "name": "Sorter",
+      "name": "File Flattener",
       "pinned": false,
       "run_dir": "C:\\Users\\user\\Desktop\\Новая папка (2)",
       "tags": [
@@ -122,7 +138,7 @@
       "color": "rgb(157, 78, 221)",
       "created": "2026-06-01T07:01:55.644827",
       "description": "Выдаёт объект, на котором расположен тег Xpresso.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "5677afff",
       "icon": "⚙",
       "id": "bdffae0a",
       "modified": "2026-06-01T07:01:55.644832",
@@ -138,7 +154,7 @@
       "color": "#9d4edd",
       "created": "2026-06-01T07:04:58.007434",
       "description": "Принимает объект через входной порт Object и выводит его габариты по осям X, Y, Z на основе локального bounding box.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "5677afff",
       "icon": "⚙",
       "id": "9041ad33",
       "modified": "2026-06-01T07:04:58.007441",
@@ -154,7 +170,7 @@
       "color": "rgb(255, 107, 53)",
       "created": "2026-06-01T08:04:29.203919",
       "description": "Переключает ссылку между тремя входами по значению Switch.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "1ab19101",
       "icon": "⚙",
       "id": "35d86f9e",
       "modified": "2026-06-01T08:04:29.203926",
@@ -170,7 +186,7 @@
       "color": "rgb(255, 107, 53)",
       "created": "2026-06-01T08:07:12.544632",
       "description": "Переключает ссылку между тремя входами по значению Switch.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "1ab19101",
       "icon": "⚙",
       "id": "8b8a8dee",
       "modified": "2026-06-01T08:07:12.544638",
@@ -186,7 +202,7 @@
       "color": "rgb(255, 107, 53)",
       "created": "2026-06-01T08:08:06.201624",
       "description": "Переключает ссылку между тремя входами по значению Switch.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "1ab19101",
       "icon": "⚙",
       "id": "64dccf4d",
       "modified": "2026-06-01T08:08:06.201630",
@@ -202,7 +218,7 @@
       "color": "rgb(255, 107, 53)",
       "created": "2026-06-01T08:08:49.700395",
       "description": "Переключает ссылку между тремя входами по значению Switch.",
-      "folder_id": "c9b5bb80",
+      "folder_id": "1ab19101",
       "icon": "⚙",
       "id": "c4fc9ace",
       "modified": "2026-06-01T08:08:49.700401",
@@ -211,6 +227,22 @@
       "run_dir": "C:\\Users\\user",
       "tags": [
         "XPresso - Логика"
+      ]
+    },
+    {
+      "code": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\nimport os\nimport sys\nimport shutil\nimport time\nimport threading\nfrom pathlib import Path\n\n# ── ANSI цвета и стили ────────────────────────────────────────────────────────\nR  = \"\\033[0m\"          # reset\nB  = \"\\033[1m\"          # bold\nDIM= \"\\033[2m\"          # dim\nIT = \"\\033[3m\"          # italic\n\nC0 = \"\\033[38;5;237m\"  # dark gray  (borders)\nC1 = \"\\033[38;5;255m\"  # white      (text)\nC2 = \"\\033[38;5;75m\"   # sky blue   (accent)\nC3 = \"\\033[38;5;82m\"   # green      (success)\nC4 = \"\\033[38;5;196m\"  # red        (error / warning)\nC5 = \"\\033[38;5;220m\"  # gold       (stats)\nC6 = \"\\033[38;5;243m\"  # mid gray   (secondary)\nC7 = \"\\033[38;5;111m\"  # periwinkle (moved files)\nBG = \"\\033[48;5;234m\"  # very dark bg\n\n# ── Вспомогательные функции отрисовки ─────────────────────────────────────────\n\ndef cls():\n    os.system(\"cls\" if os.name == \"nt\" else \"clear\")\n\ndef W():\n    \"\"\"Ширина терминала, минимум 60.\"\"\"\n    try:\n        return max(os.get_terminal_size().columns, 60)\n    except Exception:\n        return 80\n\ndef hline(char=\"─\", col=C0):\n    print(f\"{col}{char * W()}{R}\")\n\ndef box_top(col=C0):\n    print(f\"{col}╔{'═' * (W()-2)}╗{R}\")\n\ndef box_bot(col=C0):\n    print(f\"{col}╚{'═' * (W()-2)}╝{R}\")\n\ndef box_mid(col=C0):\n    print(f\"{col}╠{'═' * (W()-2)}╣{R}\")\n\ndef box_row(text=\"\", col=C0, tc=C1):\n    inner = W() - 4\n    # strip ANSI for length calculation\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", text)\n    pad = inner - len(plain)\n    print(f\"{col}║ {R}{tc}{text}{' ' * max(pad, 0)}{col} ║{R}\")\n\ndef box_row_center(text=\"\", col=C0, tc=C1):\n    inner = W() - 4\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", text)\n    total_pad = inner - len(plain)\n    lp = total_pad // 2\n    rp = total_pad - lp\n    print(f\"{col}║{' ' * (lp+1)}{R}{tc}{text}{' ' * (rp+1)}{col}║{R}\")\n\ndef print_logo():\n    logo = [\n        f\"{C2}{B}  ███████╗██╗      █████╗ ████████╗████████╗███████╗███╗   ██╗{R}\",\n        f\"{C2}{B}  ██╔════╝██║     ██╔══██╗╚══██╔══╝╚══██╔══╝██╔════╝████╗  ██║{R}\",\n        f\"{C2}{B}  █████╗  ██║     ███████║   ██║      ██║   █████╗  ██╔██╗ ██║{R}\",\n        f\"{C2}{B}  ██╔══╝  ██║     ██╔══██║   ██║      ██║   ██╔══╝  ██║╚██╗██║{R}\",\n        f\"{C2}{B}  ██║     ███████╗██║  ██║   ██║      ██║   ███████╗██║ ╚████║{R}\",\n        f\"{C2}{B}  ╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═══╝{R}\",\n    ]\n    w = W()\n    for line in logo:\n        import re\n        plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", line)\n        pad = (w - len(plain)) // 2\n        print(\" \" * max(pad, 0) + line)\n\n# ── Спиннер ───────────────────────────────────────────────────────────────────\n\nclass Spinner:\n    FRAMES = [\"⠋\",\"⠙\",\"⠹\",\"⠸\",\"⠼\",\"⠴\",\"⠦\",\"⠧\",\"⠇\",\"⠏\"]\n    def __init__(self, msg=\"Работаю...\"):\n        self.msg = msg\n        self._stop = threading.Event()\n        self._t = threading.Thread(target=self._spin, daemon=True)\n\n    def _spin(self):\n        i = 0\n        while not self._stop.is_set():\n            frame = self.FRAMES[i % len(self.FRAMES)]\n            print(f\"\\r  {C2}{frame}{R} {C1}{self.msg}{R}\", end=\"\", flush=True)\n            time.sleep(0.08)\n            i += 1\n\n    def __enter__(self):\n        self._t.start()\n        return self\n\n    def __exit__(self, *_):\n        self._stop.set()\n        self._t.join()\n        print(\"\\r\" + \" \" * (len(self.msg) + 10) + \"\\r\", end=\"\")\n\n# ── Прогресс-бар ──────────────────────────────────────────────────────────────\n\ndef progress_bar(current, total, width=None):\n    if width is None:\n        width = W() - 20\n    pct = current / total if total else 1\n    filled = int(width * pct)\n    bar = f\"{C3}{'█' * filled}{C6}{'░' * (width - filled)}{R}\"\n    return f\"  [{bar}] {C5}{B}{int(pct*100):3d}%{R}\"\n\n# ── Логика переноса файлов ─────────────────────────────────────────────────────\n\ndef collect_nested_files(root: Path):\n    \"\"\"Вернуть все файлы глубже первого уровня.\"\"\"\n    files = []\n    for p in root.rglob(\"*\"):\n        if p.is_file() and p.parent != root:\n            files.append(p)\n    return files\n\ndef safe_dest(root: Path, src: Path) -> Path:\n    \"\"\"Если файл с таким именем уже есть — добавляем суффикс.\"\"\"\n    dest = root / src.name\n    if not dest.exists():\n        return dest\n    stem, suffix = src.stem, src.suffix\n    i = 1\n    while True:\n        candidate = root / f\"{stem}_{i}{suffix}\"\n        if not candidate.exists():\n            return candidate\n        i += 1\n\ndef remove_empty_dirs(root: Path):\n    \"\"\"Удалить все пустые папки (снизу вверх).\"\"\"\n    removed = []\n    for dirpath in sorted(root.rglob(\"*\"), key=lambda p: -len(p.parts)):\n        if dirpath.is_dir() and dirpath != root:\n            try:\n                dirpath.rmdir()          # упадёт, если не пустая\n                removed.append(dirpath)\n            except OSError:\n                pass\n    return removed\n\n# ── Главный экран ──────────────────────────────────────────────────────────────\n\ndef draw_header():\n    cls()\n    print()\n    print_logo()\n    print()\n    w = W()\n    subtitle = \"✦  File Flattener  ✦  Перенос вложенных файлов в корень  ✦\"\n    import re\n    plain = re.sub(r\"\\033\\[[0-9;]*m\", \"\", subtitle)\n    pad = (w - len(plain)) // 2\n    print(\" \" * max(pad, 0) + f\"{C6}{IT}{subtitle}{R}\")\n    print()\n    hline(\"─\", C0)\n\ndef draw_summary_box(root, nested_files):\n    print()\n    box_top()\n    box_row(f\"{B}Рабочая директория:{R}  {C5}{root}{R}\")\n    box_mid()\n    box_row(f\"{C6}Найдено вложенных файлов:{R}  {C2}{B}{len(nested_files)}{R}\")\n    if nested_files:\n        # show up to 5 examples\n        for f in nested_files[:5]:\n            rel = f.relative_to(root)\n            box_row(f\"  {C6}└─{R} {DIM}{rel}{R}\")\n        if len(nested_files) > 5:\n            box_row(f\"  {C6}   … и ещё {len(nested_files)-5} файл(ов){R}\")\n    box_bot()\n    print()\n\ndef ask_confirm() -> bool:\n    print(f\"  {C5}{B}Продолжить?{R}  [{C3}Y{R}/{C4}n{R}]  \", end=\"\", flush=True)\n    try:\n        ans = input().strip().lower()\n    except (EOFError, KeyboardInterrupt):\n        ans = \"n\"\n    return ans in (\"\", \"y\", \"д\", \"да\", \"yes\")\n\ndef draw_results(root, moved, renamed, failed, removed_dirs):\n    print()\n    box_top(C3)\n    box_row_center(f\"{C3}{B}✔  Готово!{R}\", C3)\n    box_mid(C3)\n    box_row(f\"  {C3}✦{R}  Перенесено файлов:    {C5}{B}{moved}{R}\", C3)\n    box_row(f\"  {C5}✦{R}  Переименовано (дубли): {C5}{B}{renamed}{R}\", C3)\n    box_row(f\"  {C4}✦{R}  Ошибок:               {C4}{B}{failed}{R}\", C3)\n    box_row(f\"  {C6}✦{R}  Удалено папок:        {C6}{B}{len(removed_dirs)}{R}\", C3)\n    box_bot(C3)\n\n# ── Точка входа ───────────────────────────────────────────────────────────────\n\ndef main():\n    # Директория = папка скрипта\n    root = Path(__file__).parent.resolve()\n\n    draw_header()\n\n    # Сбор файлов\n    with Spinner(\"Сканирую директорию...\"):\n        nested = collect_nested_files(root)\n\n    if not nested:\n        print()\n        box_top(C5)\n        box_row_center(f\"{C5}{B}ℹ  Вложенных файлов не найдено. Всё уже в корне!{R}\", C5)\n        box_bot(C5)\n        print()\n        _pause()\n        return\n\n    draw_summary_box(root, nested)\n\n    if not ask_confirm():\n        print(f\"\\n  {C4}Отменено.{R}\\n\")\n        _pause()\n        return\n\n    print()\n    total = len(nested)\n    moved = renamed = failed = 0\n    log_lines = []\n\n    for i, src in enumerate(nested, 1):\n        # Прогресс\n        print(progress_bar(i - 1, total), end=\"\\r\", flush=True)\n\n        dest = safe_dest(root, src)\n        is_rename = dest.name != src.name\n        try:\n            shutil.move(str(src), str(dest))\n            if is_rename:\n                renamed += 1\n                status = f\"{C5}↻ переименован{R}\"\n            else:\n                status = f\"{C3}✔ перенесён{R}\"\n            moved += 1\n            tag = f\"{C7}{dest.name}{R}\"\n        except Exception as e:\n            failed += 1\n            status = f\"{C4}✘ ошибка: {e}{R}\"\n            tag = f\"{C4}{src.name}{R}\"\n\n        log_lines.append((tag, status))\n\n    # Финальная полоска\n    print(progress_bar(total, total))\n    time.sleep(0.3)\n\n    # Удаление пустых папок\n    print(f\"\\n  {C6}Удаляю пустые папки...{R}\")\n    removed_dirs = remove_empty_dirs(root)\n\n    # Лог (последние 10)\n    print()\n    hline()\n    print(f\"  {B}{C1}Журнал операций:{R}\")\n    for tag, status in log_lines[-10:]:\n        print(f\"  {C6}•{R} {tag}  {status}\")\n    if len(log_lines) > 10:\n        print(f\"  {C6}… показаны последние 10 из {len(log_lines)}{R}\")\n    hline()\n\n    draw_results(root, moved, renamed, failed, removed_dirs)\n\n    _pause()\n\n\ndef _pause():\n    print(f\"\\n  {DIM}Нажмите Enter для выхода…{R}\", end=\"\", flush=True)\n    try:\n        input()\n    except (EOFError, KeyboardInterrupt):\n        pass\n\n\nif __name__ == \"__main__\":\n    # Убеждаемся, что окно не закроется мгновенно при двойном клике\n    try:\n        main()\n    except Exception as exc:\n        print(f\"\\n  {C4}{B}Критическая ошибка:{R} {exc}\\n\")\n        _pause()",
+      "color": "rgb(255, 215, 0)",
+      "created": "2026-06-01T09:09:40.256279",
+      "description": "Перенос вложенных файлов в корень ",
+      "folder_id": "c997c815",
+      "icon": "🤖",
+      "id": "1c368319",
+      "modified": "2026-06-01T09:09:40.256286",
+      "name": "File Flattener (копия)",
+      "pinned": false,
+      "run_dir": "C:\\Users\\user\\Desktop\\Новая папка (2)",
+      "tags": [
+        "Утилита"
       ]
     }
   ],

@@ -826,8 +826,9 @@ function renderCanvas() {
   }
 
   // ── Breadcrumb ───────────────────────────────────────────────
-  if (currentFolder) {
-    const path = getFolderPath(currentFolder);
+  const bcFolderId = currentFolder || (currentFilter.startsWith('folder:') ? currentFilter.split(':')[1] : null);
+  if (bcFolderId) {
+    const path = getFolderPath(bcFolderId);
     bc.innerHTML = `<span class="bc-item" onclick="goRoot()">🏠 Все</span>` +
       path.map((f, i) => {
         const isLast = i === path.length - 1;
@@ -868,11 +869,13 @@ function renderCanvas() {
 
   // ── Folders to show ──────────────────────────────────────────
   let folders = [];
-  if (!q || currentFolder) {
-    const parentId = currentFolder || null;
-    if (currentFilter === 'all' || currentFolder !== null) {
+  const sidebarFolderId = currentFilter.startsWith('folder:') ? currentFilter.split(':')[1] : null;
+  const effectiveParentId = currentFolder !== null ? currentFolder : sidebarFolderId;
+
+  if (!q || effectiveParentId) {
+    if (currentFilter === 'all' || effectiveParentId !== null) {
       folders = state.folders.filter(f =>
-        !trashedFolderIds.has(f.id) && (f.parent_id || null) === parentId
+        !trashedFolderIds.has(f.id) && (f.parent_id || null) === effectiveParentId
       );
       if (q) folders = folders.filter(f => f.name.toLowerCase().includes(q));
     }
@@ -1794,12 +1797,81 @@ function onTerminalKey(e) {
 
 async function quickRun(e, id) {
   e.stopPropagation();
+
+  const s = state.scripts.find(x => x.id === id);
+  if (!s) return;
+
+  // Ask for run directory before executing
+  const chosenDir = await pickRunDirForScript(id);
+  if (chosenDir === null) return; // user cancelled
+
+  // Apply directory if changed
+  if (chosenDir !== (s.run_dir || '')) {
+    await api('/api/script/' + id, 'PUT', { run_dir: chosenDir });
+    s.run_dir = chosenDir;
+  }
+
+  // Open editor, switch to terminal, run
   openEditor(id);
   setTimeout(() => {
     switchWinTab('terminal', null);
     setTimeout(runScript, 50);
   }, 80);
 }
+
+// Shows a compact dir-picker modal for a script and resolves with chosen path
+// Returns the path string (may be '') on confirm, or null on cancel
+function pickRunDirForScript(id) {
+  return new Promise(async resolve => {
+    currentScriptId = id;
+    const s = state.scripts.find(x => x.id === id);
+
+    // Populate the dir picker as usual
+    const manual = document.getElementById('dir-manual-path');
+    if (manual) manual.value = s?.run_dir || '';
+    let start = s ? (s.run_dir || '') : '';
+    if (!start || start === '/' || start === '\\') {
+      if (_isWindows) start = '__drives__';
+      else start = (await api('/api/ls?path=' + encodeURIComponent(''))).path || '';
+    }
+    await loadDir(start);
+
+    // Swap the modal confirm button to resolve the promise
+    const modal = document.getElementById('modal-dir');
+    const selectBtn = modal.querySelector('.btn-ok');
+    const cancelBtn = modal.querySelector('.btn-cancel');
+
+    function cleanup() {
+      selectBtn.onclick = selectDir;
+      cancelBtn.onclick = () => closeModal('modal-dir');
+      modal.removeEventListener('click', backdropCancel);
+    }
+
+    function backdropCancel(ev) {
+      if (ev.target === modal) { cleanup(); closeModal('modal-dir'); resolve(null); }
+    }
+
+    selectBtn.onclick = async () => {
+      if (!dirPickerPath && dirPickerPath !== '') {
+        toast('Выберите папку', 'err');
+        return;
+      }
+      cleanup();
+      closeModal('modal-dir');
+      resolve(dirPickerPath || '');
+    };
+
+    cancelBtn.onclick = () => {
+      cleanup();
+      closeModal('modal-dir');
+      resolve(null);
+    };
+
+    modal.addEventListener('click', backdropCancel);
+    openModal('modal-dir');
+  });
+}
+
 
 async function pollRunning() {
   // Update running dots on icons
@@ -2225,8 +2297,9 @@ function openNewScript() {
   const sel = document.getElementById('ns-folder');
   sel.innerHTML = '<option value="">— Без папки —</option>' +
     state.folders.map(f => `<option value="${f.id}">${f.icon} ${esc(f.name)}</option>`).join('');
-  // Preselect current folder
-  if (currentFolder) sel.value = currentFolder;
+  // Preselect current folder (opened via canvas or sidebar)
+  const activeFolderId = currentFolder || (currentFilter.startsWith('folder:') ? currentFilter.split(':')[1] : null);
+  if (activeFolderId) sel.value = activeFolderId;
 
   buildIconPicker('ns-icon-row', SCRIPT_ICONS, SCRIPT_ICONS[0]);
   buildColorPicker('ns-color-row', COLORS, COLORS[0]);
@@ -2263,6 +2336,8 @@ function openNewFolder(parentOverride) {
   // Populate parent folder selector
   const sel = document.getElementById('nf-parent-folder');
   if (sel) {
+    const activeFolderId = currentFolder || (currentFilter.startsWith('folder:') ? currentFilter.split(':')[1] : null);
+    const preselect = parentOverride !== undefined ? parentOverride : (activeFolderId || '');
     sel.innerHTML = '<option value="">— Корневой уровень —</option>' +
       state.folders
         .filter(f => !trashedFolderIds.has(f.id))
@@ -2270,8 +2345,7 @@ function openNewFolder(parentOverride) {
           const path = getFolderPath(f.id).map(x => x.name).join(' / ');
           return `<option value="${f.id}">${f.icon} ${path}</option>`;
         }).join('');
-    const preselect = parentOverride !== undefined ? parentOverride : (currentFolder || '');
-    if (preselect) sel.value = preselect;
+    sel.value = preselect || '';
   }
 
   openModal('modal-new-folder');
@@ -2433,7 +2507,11 @@ async function folderCtxDelete() {
 }
 
 function canvasCtxNewScript() { hideCtx(); openNewScript(); }
-function canvasCtxNewFolder()  { hideCtx(); openNewFolder(currentFolder); }
+function canvasCtxNewFolder() {
+  hideCtx();
+  const activeFolderId = currentFolder || (currentFilter.startsWith('folder:') ? currentFilter.split(':')[1] : null);
+  openNewFolder(activeFolderId);
+}
 function canvasCtxOpenProject() { hideCtx(); openProjectsModal(); }
 function canvasCtxSaveProject() { hideCtx(); exportProject(); }
 function canvasCtxGoRoot()     { hideCtx(); goRoot(); }
