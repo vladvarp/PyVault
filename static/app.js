@@ -29,7 +29,22 @@ let trashedScriptIds = new Set();
 let trashedFolderIds = new Set();
 const TRASH_KEY = 'pyvault-trash';
 
-const COLORS = ['#00ff88','#00c8ff','#ff004d','#ffd700','#9d4edd','#ff6b35','#2ec4b6','#e63946','#06d6a0','#f72585'];
+const COLORS = [
+  '#00ff88','#00c8ff','#ff004d','#ffd700','#9d4edd','#ff6b35','#2ec4b6','#e63946','#06d6a0','#f72585',
+  '#4cc9f0','#f8961e','#90be6d','#43aa8b','#577590','#f94144','#a8dadc','#e9c46a','#264653','#023e8a',
+  '#7b2d8b','#c77dff','#48cae4','#b5e48c','#ff9a3c','#ef233c','#8ecae6','#a2d2ff','#cdb4db','#ffafcc',
+];
+const SCRIPT_ICONS = [
+  '🐍','⚡','🔧','🛠','📊','🤖','🧪','🔍','💡','🚀',
+  '🎯','🔑','📡','🧩','🌐','🔐','💾','📈','🗂','⚙',
+  '🎮','🧬','🛡','📱','🖥','🗜','🔭','🧮','🪄','🎲',
+  '🔥','💎','🌊','🧠','📝','🗃','🔗','🪝','⚗','🎛',
+];
+const FOLDER_ICONS = [
+  '📁','📂','🗂','💼','🗃','📦','🎒','🏷','🧲','🔬',
+  '🚀','⚡','🎯','🛠','💡','🔐','🌐','📊','🧪','🎮',
+  '🏗','📚','🎨','🔧','💰','🏠','🌿','⭐','🔴','🟣',
+]; 
 const PY_KEYWORDS = new Set([
   'False','None','True','and','as','assert','async','await','break','class','continue',
   'def','del','elif','else','except','finally','for','from','global','if','import',
@@ -42,8 +57,7 @@ const PY_BUILTINS = new Set([
   'super','property','staticmethod','classmethod','Exception','ValueError','TypeError',
   'KeyError','IndexError','RuntimeError','StopIteration','FileNotFoundError','OSError'
 ]);
-const SCRIPT_ICONS = ['🐍','⚡','🔧','🛠','📊','🤖','🧪','🔍','💡','🚀','🎯','🔑','📡','🧩','🌐','🔐','💾','📈','🗂','⚙'];
-const FOLDER_ICONS = ['📁','📂','🗂','💼','🗃','📦','🎒','🏷','🧲','🔬'];
+
 
 // ── Trash management ─────────────────────────────────────────────
 function loadTrash() {
@@ -2474,6 +2488,8 @@ function openRenameFolderModal() {
   const f = state.folders.find(x => x.id === ctxFolderId);
   if (!f) return;
   document.getElementById('rename-folder-name').value = f.name;
+  buildIconPicker('rename-folder-icon-row', FOLDER_ICONS, f.icon || FOLDER_ICONS[0]);
+  buildColorPicker('rename-folder-color-row', COLORS, f.color || COLORS[1]);
   openModal('modal-rename-folder');
   setTimeout(() => {
     const inp = document.getElementById('rename-folder-name');
@@ -2489,13 +2505,15 @@ async function confirmRenameFolder() {
     return;
   }
   if (!ctxFolderId) return;
-  await api('/api/folder/' + ctxFolderId, 'PUT', { name });
+  const icon  = document.querySelector('#rename-folder-icon-row .sel')?.textContent || '📁';
+  const color = document.querySelector('#rename-folder-color-row .sel')?.style.background || COLORS[1];
+  await api('/api/folder/' + ctxFolderId, 'PUT', { name, icon, color });
   const f = state.folders.find(x => x.id === ctxFolderId);
-  if (f) f.name = name;
+  if (f) { f.name = name; f.icon = icon; f.color = color; }
   closeModal('modal-rename-folder');
   render();
   touchProject();
-  toast('✓ Папка переименована');
+  toast('✓ Папка обновлена');
 }
 
 async function folderCtxDelete() {
