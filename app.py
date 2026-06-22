@@ -189,9 +189,10 @@ def analyze_code(code: str) -> dict:
                 del unused_imports[pkg]
 
         # Determine unused functions: defined but never referenced outside own def
+        func_name_set = set(func_def_nodes.values())
         func_ref_counts = {}
         for node in _walk(tree):
-            if isinstance(node, ast.Name) and node.id in func_def_nodes:
+            if isinstance(node, ast.Name) and node.id in func_name_set:
                 target_name = node.id
                 in_own_def = False
                 cur = node._parent
