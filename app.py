@@ -111,27 +111,108 @@ def analyze_code(code: str) -> dict:
     }
     std_libs, third_party, functions, classes = set(), set(), [], []
     errors = []
+    unused_imports = {}
+    unused_stdlib = {}
+    unused_functions = []
     lines = len(code.splitlines())
     try:
         tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    name = alias.name.split('.')[0]
-                    (std_libs if name in STDLIB else third_party).add(name)
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    name = node.module.split('.')[0]
-                    (std_libs if name in STDLIB else third_party).add(name)
+
+        # Pass 1: walk tree, tag parents, collect imports & function defs
+        imported = {}          # local_name → (package_root, is_from_import)
+        import_node_ids = set()
+        func_def_nodes = {}    # node_id → name (top-level functions only)
+
+        def _walk(node, parent=None):
+            node._parent = parent
+            yield node
+            for child in ast.iter_child_nodes(node):
+                yield from _walk(child, node)
+
+        for node in _walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                import_node_ids.add(id(node))
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        local = alias.asname if alias.asname else alias.name.split('.')[0]
+                        pkg = alias.name.split('.')[0]
+                        (std_libs if pkg in STDLIB else third_party).add(pkg)
+                        imported[local] = (pkg, False)
+                elif node.module:
+                    pkg = node.module.split('.')[0]
+                    (std_libs if pkg in STDLIB else third_party).add(pkg)
+                    for alias in node.names:
+                        if alias.name == '*':
+                            imported[pkg] = (pkg, True)
+                            continue
+                        local = alias.asname if alias.asname else alias.name
+                        imported[local] = (pkg, True)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.col_offset == 0:
                     functions.append(node.name)
+                    func_def_nodes[id(node)] = node.name
             elif isinstance(node, ast.ClassDef):
                 if node.col_offset == 0:
                     classes.append(node.name)
+
+        # Pass 2: collect used names (Name nodes NOT inside import statements)
+        used_names = set()
+        for node in _walk(tree):
+            if isinstance(node, ast.Name):
+                in_import = False
+                cur = node._parent
+                while cur is not None:
+                    if id(cur) in import_node_ids:
+                        in_import = True
+                        break
+                    cur = getattr(cur, '_parent', None)
+                if not in_import:
+                    used_names.add(node.id)
+
+        # Determine unused imports per package
+        pkg_unused = {}
+        pkg_total = {}
+        for local, (pkg, _is_from) in imported.items():
+            pkg_total.setdefault(pkg, set()).add(local)
+            if local not in used_names:
+                pkg_unused.setdefault(pkg, set()).add(local)
+
+        for pkg, total in pkg_total.items():
+            unused = pkg_unused.get(pkg, set())
+            if unused and len(unused) == len(total):
+                unused_imports[pkg] = sorted(unused)
+
+        # Split unused by stdlib vs third_party
+        for pkg, names in list(unused_imports.items()):
+            if pkg in STDLIB:
+                unused_stdlib[pkg] = names
+                del unused_imports[pkg]
+
+        # Determine unused functions: defined but never referenced outside own def
+        func_ref_counts = {}
+        for node in _walk(tree):
+            if isinstance(node, ast.Name) and node.id in func_def_nodes:
+                target_name = node.id
+                in_own_def = False
+                cur = node._parent
+                while cur is not None:
+                    if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        if func_def_nodes.get(id(cur)) == target_name:
+                            in_own_def = True
+                            break
+                    cur = getattr(cur, '_parent', None)
+                if not in_own_def:
+                    func_ref_counts[target_name] = func_ref_counts.get(target_name, 0) + 1
+
+        for fname in functions:
+            if func_ref_counts.get(fname, 0) == 0:
+                unused_functions.append(fname)
+
     except SyntaxError as e:
         errors.append(f"Строка {e.lineno}: {e.msg}")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         errors.append(str(e))
 
     return {
@@ -141,6 +222,9 @@ def analyze_code(code: str) -> dict:
         "classes": classes,
         "lines": lines,
         "errors": errors,
+        "unused_imports": unused_imports,
+        "unused_stdlib": unused_stdlib,
+        "unused_functions": unused_functions,
         "complexity": "простая" 
             if lines < 50 else "низкая" 
             if lines < 150 else "средняя"

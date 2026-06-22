@@ -213,6 +213,10 @@
             <button class="run-btn" id="run-btn" onclick="runScript()">
               ▶ Запустить
             </button>
+            <label class="term-wrap-toggle" title="Перенос длинных строк">
+              <input type="checkbox" id="terminal-wrap-cb" onchange="toggleTerminalWrap(this.checked)">
+              ↵-wrap
+            </label>
           </div>
           <div id="stdin-bar">
             <span class="stdin-prompt">›</span>

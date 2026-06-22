@@ -1651,6 +1651,10 @@ function clearTerminal() {
   document.getElementById('terminal-out').innerHTML = '<div class="tl sys">// Консоль</div>';
 }
 
+function toggleTerminalWrap(on) {
+  document.getElementById('terminal-out').classList.toggle('wrap-mode', on);
+}
+
 function escHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -2189,35 +2193,49 @@ async function loadDeps(id) {
   if (data.third_party.length) {
     // Count missing packages
     const missing = data.third_party.filter(pkg => !data.dep_status[pkg]);
+    const unused = data.unused_imports || {};
+    const unusedPkgs = Object.keys(unused);
     html += `<div class="dep-group-title" style="display:flex;align-items:center;justify-content:space-between">
-      <span>📦 Сторонние пакеты</span>
+      <span>📦 Сторонние пакеты ${unusedPkgs.length ? `<span style="color:#ffd700;font-size:11px;font-weight:400;margin-left:6px">(${unusedPkgs.length} неиспольз.)</span>` : ''}</span>
       ${missing.length > 0 ? `<button class="install-all-btn" id="install-all-btn-${id}" data-pkgs="${encodeURIComponent(JSON.stringify(missing))}">⬇ Установить все (${missing.length})</button>` : ''}
     </div>`;
     data.third_party.forEach(pkg => {
       const ok = data.dep_status[pkg];
+      const isUnused = unused[pkg];
       html += `<div class="dep-row">
         <span class="dep-icon">📦</span>
         <span class="dep-name">${esc(pkg)}</span>
         <span class="dep-badge ${ok?'ok':'missing'}">${ok?'✓ есть':'✗ нет'}</span>
+        ${isUnused ? `<span class="dep-badge unused" title="Не используется: ${esc(isUnused.join(', '))}">⚠ неиспольз.</span>` : ''}
         ${!ok?`<button class="install-btn" onclick="installPkg('${esc(pkg)}')">pip install</button>`:''}
       </div>`;
     });
   }
   if (data.std_libs.length) {
-    html += `<div class="dep-group-title">🐍 Стандартная библиотека</div>`;
+    const unusedStd = data.unused_stdlib || {};
+    const unusedStdPkgs = Object.keys(unusedStd);
+    html += `<div class="dep-group-title">🐍 Стандартная библиотека ${unusedStdPkgs.length ? `<span style="color:#ffd700;font-size:11px;font-weight:400;margin-left:6px">(${unusedStdPkgs.length} неиспольз.)</span>` : ''}</div>`;
     data.std_libs.forEach(pkg => {
-      html += `<div class="dep-row"><span class="dep-icon">🐍</span><span class="dep-name">${esc(pkg)}</span><span class="dep-badge stdlib">stdlib</span></div>`;
+      const isUnused = unusedStd[pkg];
+      html += `<div class="dep-row">
+        <span class="dep-icon">🐍</span>
+        <span class="dep-name">${esc(pkg)}</span>
+        <span class="dep-badge stdlib">stdlib</span>
+        ${isUnused ? `<span class="dep-badge unused" title="Не используется: ${esc(isUnused.join(', '))}">⚠ неиспольз.</span>` : ''}
+      </div>`;
     });
   }
   if (data.functions.length || data.classes.length) {
-    html += `<div class="dep-group-title">🏗 Структура кода</div>`;
+    const unusedFuncs = data.unused_functions || [];
+    const unusedFuncSet = new Set(unusedFuncs);
+    html += `<div class="dep-group-title">🏗 Структура кода ${unusedFuncs.length ? `<span style="color:#ffd700;font-size:11px;font-weight:400;margin-left:6px">(${unusedFuncs.length} неиспольз.)</span>` : ''}</div>`;
     if (data.classes.length) {
       html += `<div class="dep-row"><span class="dep-icon">🧱</span><span class="dep-name">Классы</span>
         <div class="fn-chips">${data.classes.map(x=>`<span class="fn-chip">${esc(x)}</span>`).join('')}</div></div>`;
     }
     if (data.functions.length) {
       html += `<div class="dep-row"><span class="dep-icon">⚡</span><span class="dep-name">Функции</span>
-        <div class="fn-chips">${data.functions.map(x=>`<span class="fn-chip">${esc(x)}</span>`).join('')}</div></div>`;
+        <div class="fn-chips">${data.functions.map(x=>`<span class="fn-chip ${unusedFuncSet.has(x)?'fn-chip-unused':''}" ${unusedFuncSet.has(x)?'title="Функция определена, но нигде не вызывается"':''}>${esc(x)}${unusedFuncSet.has(x)?' ⚠':''}</span>`).join('')}</div></div>`;
     }
   }
   c.innerHTML = html;

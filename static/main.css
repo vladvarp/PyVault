@@ -1024,15 +1024,39 @@
    .tl.sys { color: var(--accent); font-style: italic; opacity: .75; }
    .tl.warn { color: #ffd700; }
    
-   #terminal-bar {
-     padding: 8px 12px;
-     background: #010409;
-     border-top: 1px solid #1a1f2a;
-     display: flex;
-     gap: 8px;
-     align-items: center;
-     flex-shrink: 0;
-   }
+    #terminal-bar {
+      padding: 8px 12px;
+      background: #010409;
+      border-top: 1px solid #1a1f2a;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #terminal-out.wrap-mode .tl {
+      white-space: pre-wrap;
+      word-break: normal;
+      overflow-wrap: break-word;
+    }
+
+    .term-wrap-toggle {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text3);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .term-wrap-toggle input {
+      accent-color: var(--accent);
+      width: 13px;
+      height: 13px;
+      cursor: pointer;
+    }
    
    .run-dir-pick-btn {
      flex-shrink: 0;
@@ -1281,7 +1305,8 @@
    }
    .dep-badge.ok      { background: rgba(0,255,136,.1); color: var(--accent); border: 1px solid rgba(0,255,136,.25); }
    .dep-badge.missing { background: rgba(255,0,77,.1);  color: var(--accent3); border: 1px solid rgba(255,0,77,.25); }
-   .dep-badge.stdlib  { background: rgba(0,200,255,.1); color: var(--accent2); border: 1px solid rgba(0,200,255,.25); }
+    .dep-badge.stdlib  { background: rgba(0,200,255,.1); color: var(--accent2); border: 1px solid rgba(0,200,255,.25); }
+    .dep-badge.unused  { background: rgba(255,215,0,.1);  color: #ffd700;      border: 1px solid rgba(255,215,0,.25); }
    
    .install-btn {
      padding: 3px 8px;
@@ -1297,11 +1322,16 @@
    .install-btn:hover { background: rgba(255,0,77,.2); }
    
    .fn-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-   .fn-chip {
-     background: var(--bg4); border: 1px solid var(--border2);
-     border-radius: 4px; padding: 2px 7px;
-     font-size: 10px; color: var(--text2);
-   }
+    .fn-chip {
+      background: var(--bg4); border: 1px solid var(--border2);
+      border-radius: 4px; padding: 2px 7px;
+      font-size: 10px; color: var(--text2);
+    }
+    .fn-chip.fn-chip-unused {
+      background: rgba(255,215,0,.08);
+      border-color: rgba(255,215,0,.3);
+      color: #ffd700;
+    }
    
    .error-row {
      background: rgba(255,0,77,.06);
